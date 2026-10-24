@@ -1,31 +1,50 @@
 # Text RPG AI
 
-A local-first, single-player RPG companion. Campaigns are stored as structured JSON and readable Markdown files on your computer. `state.json` is the source of truth for character identity, stats, inventory, realm progress, goals, and plot pillars; the backend regenerates Markdown summaries from it. Before narration, the backend gathers this state, campaign settings, and recent events. Your story files stay on your machine unless you choose to share the story folder. Narrator messages, brainstorm ideas, and world-field example requests are sent to Groq for a response.
+Text RPG AI is a local, single-player storytelling game. You describe what your
+character tries to do, and an AI narrator describes what happens next. You can shape
+the world and character before play begins, then guide the story one action at a time.
 
-## Requirements
+This guide starts with the steps for playing. Technical details are collected at the
+end for anyone who wants to understand or change how the app is built.
 
-- Python 3.10 or newer
-- Node.js 18 or newer (includes npm)
+## What happens to my story?
+
+Think of each campaign as a folder on your computer. The app saves your character,
+items, goals, and world details there, along with a readable record of what happened.
+You can copy or export a campaign folder as a backup or share it with someone else.
+
+Your campaign files stay on this computer unless you choose to share or export them.
+When you ask the narrator for a response, the app sends your message and the relevant
+campaign context to Groq so it can generate the reply. Brainstorming and generated
+examples are sent there too. Your Groq API key is kept in a private `.env` file and
+should never be shared.
+
+## What you need
+
+- A computer with Python 3.10 or newer
+- Node.js 18 or newer (npm is included with Node.js)
 - A free Groq account and API key
+- An internet connection when you want an AI response
 
-## Configure your Groq key
+## First-time setup on Windows
 
-Create a free account at [console.groq.com](https://console.groq.com/), open **API Keys**, and create a key. Copy `.env.example` to `.env` in the project root, then paste the key after `GROQ_API_KEY=`. Keep `.env` private; it is excluded from Git. The default model is `qwen/qwen3.8-27b`.
+### 1. Get a Groq API key
 
-## Install and run
+Create an account at [console.groq.com](https://console.groq.com/). In the Groq
+console, open **API Keys**, create a key, and copy it. Treat the key like a password.
 
-Open two terminals in the project folder.
+### 2. Save the key privately
 
-### Backend (terminal 1)
+In the project folder, make a copy of `.env.example` named `.env`. Open `.env` in a
+text editor and paste your key after `GROQ_API_KEY=`. Save the file. Keep `.env`
+private; it is excluded from Git and should not be sent to anyone.
 
-```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r backend\requirements.txt
-python -m uvicorn backend.app:app --reload --host 127.0.0.1 --port 8000
-```
+The app currently uses Groq's `qwen/qwen3.8-27b` model by default. You do not need to
+change it to get started.
 
-If PowerShell blocks virtual environment activation, run the commands below instead (the final command uses the environment interpreter directly):
+### 3. Start the story service
+
+Open PowerShell in the project folder and run these commands one at a time:
 
 ```powershell
 py -m venv .venv
@@ -33,7 +52,13 @@ py -m venv .venv
 .\.venv\Scripts\python.exe -m uvicorn backend.app:app --reload --host 127.0.0.1 --port 8000
 ```
 
-### Frontend (terminal 2)
+Keep this PowerShell window open while you play. The first command creates a private
+Python environment for this app. The second installs the backend pieces it needs. The
+third starts the local service that saves campaigns and talks to Groq.
+
+### 4. Start the game window
+
+Open a second PowerShell window in the project folder and run:
 
 ```powershell
 cd frontend
@@ -41,12 +66,112 @@ npm install
 npm run dev
 ```
 
-Open the local address printed by Vite (normally `http://127.0.0.1:5173`). The backend API docs are at `http://127.0.0.1:8000/docs`.
+Keep this window open too. Open the local web address printed in the window; it is
+usually `http://127.0.0.1:5173`. The app runs in your browser, but its story files are
+saved locally by the backend.
 
-## Story files
+## Playing your first campaign
 
-Campaigns are created under `data/stories/`. Each campaign has `state.json` (the source of truth), generated `character_state.md`, `goals.md`, `plot_pillars.md`, `story.md`, `settings.json`, and timestamped Markdown events under `sessions/`. State includes inventory counts, realm progress, NPC relationships, confirmed lore, and learned techniques. The setup wizard lets you choose a genre, background, stat allocation, starting items, starting plane, realm ladder, highest power level, house rules, tone, and play mode. The Xianxia template includes the staged cultivation ladder from Mortal/Beginner through Origin Ancestor; custom hierarchies can be pasted and edited. The narrator receives the world ceiling and rules with every turn. It may update NPC, lore, and technique records through a bounded JSON response field; stats and items stay under backend game logic. Back up or share a campaign by copying its folder. The `data/` directory is excluded from Git to keep personal stories out of source control.
+On the home page, choose **Create a campaign**. The setup walks you through the world,
+opening situation, character, and starting items. You can use the example buttons for
+ideas, or write your own details. Choose a place where the story begins; the narrator
+uses that location as the starting point.
 
-The home screen supports creating, continuing, importing, exporting, and deleting campaigns. Imports accept campaign ZIP archives created by the app; the backend checks archive paths, symlinks, file counts, and size limits and only copies supported campaign files. Example text for world-building fields is generated with the selected genre and world settings. Background templates are hard-coded in the frontend and do not use Groq. Use the theme button in the header to switch between dark and light mode.
+When the story opens, type what your character attempts in the message box. For
+example: “I ask the shopkeeper whether anyone came through here last night.” You can
+click one of the suggested actions or type something entirely different. The character
+sheet shows your saved stats, items, current in-world time, weather, and known faction
+standing.
 
-The narrator follows the wizard's exact starting location and background. It sends immersive prose separately from optional suggested-action buttons, so you can click a suggestion or type any action of your own. Use `/roll 1d20` for an unopposed roll or `/roll 1d20 vs 15` to log a target and explicit success or failure; failed checks prompt the narrator to introduce a proportionate complication. Use `/recap` or the **Recap** button to summarize recent events. Prefix a question with `/ooc` to ask about rules or campaign details without advancing the story. The narrator introduces a subtle world tick every six in-world turns and suggests a session break with a continuity summary every twelve turns.
+The app saves each turn and dice roll as it happens. You can return to the home page
+by clicking **MYTHOS** in the upper-left corner, then continue a recent campaign or
+load another one. Use the theme button to switch between dark and light appearance.
+
+## Commands you can type
+
+- `/help` shows the command guide.
+- `/stats` shows character stats, realm, and resource levels. `/status` works too.
+- `/inventory` shows saved items and their quantities or durability.
+- `/recap` summarizes recent events. The **Recap** button does the same thing.
+- `/ooc Is this action allowed?` asks a rules or world question without advancing
+  the story.
+- `/roll 1d20` rolls a die. To compare against a target, use `/roll 1d20 vs 15`.
+
+Dice are rolled and recorded by the app, so the narrator cannot change the result. In
+dice-focused play, a failed check should lead to a complication that keeps the story
+moving.
+
+## Backing up, importing, or sharing a campaign
+
+Campaigns are stored in `data/stories/`, with one folder per campaign. Use the app's
+export option to make a shareable ZIP archive. You can import an archive from another
+player through the home page. The app checks imported files before adding them to your
+local library. Sharing or exporting a campaign shares its story contents, so review
+the files before sending them to someone else.
+
+## If something goes wrong
+
+- **The page does not open:** Check that both PowerShell windows are still running.
+  Use the local web address printed by the frontend window.
+- **The narrator cannot respond:** Check that `.env` exists in the project folder and
+  that `GROQ_API_KEY=` has a valid key after the equals sign. Also check your internet
+  connection and Groq account.
+- **The key was exposed:** Revoke it in the Groq console, create a new one, and update
+  `.env`.
+- **You want a clean restart:** Stop a running service with `Ctrl+C` in its PowerShell
+  window, then run its start command again.
+
+## Technical information
+
+### How the pieces work together
+
+The React app in `frontend/` displays the home page, campaign setup, chat, character
+sheet, and settings. It sends requests to the local FastAPI service in `backend/`.
+Before a narrator request, the backend gathers the campaign's structured state,
+settings, active goals, plot pillars, and recent Markdown session events. It sends the
+request and this context to Groq, then records the response and any supported state
+updates.
+
+### Storage and state
+
+Each campaign folder under `data/stories/` contains:
+
+- `state.json`: authoritative character, inventory, realm, world clock, weather,
+  relationships, lore, techniques, and faction reputation data.
+- `settings.json`: campaign preferences such as genre, difficulty, tone, and mode.
+- Generated Markdown summaries such as `character_state.md`, `goals.md`, and
+  `plot_pillars.md`.
+- `sessions/`: timestamped Markdown logs of conversation turns and dice rolls.
+
+The backend reads JSON for game logic and regenerates the readable Markdown summaries
+from it. Markdown is intended for browsing; JSON remains the source of truth.
+
+### Project layout
+
+```text
+backend/
+  ai/             Groq client, narrator prompts, and response parsing
+  api/            FastAPI routes and shared dependencies
+  mcp_server/     Game-state context builder
+  storage/        Campaign folders, JSON state, and Markdown logs
+  utils/          Dice rolling and supporting utilities
+  app.py          FastAPI application and middleware
+frontend/
+  src/            React views, components, styles, and API service
+data/stories/     Local campaign files created at runtime
+```
+
+### Configuration
+
+Runtime settings are loaded from `.env` by `backend/config.py`. Available values in
+`.env.example` include:
+
+- `GROQ_API_KEY`: secret key for Groq; do not commit or share it.
+- `GROQ_MODEL`: model name; default is `qwen/qwen3.8-27b`.
+- `APP_HOST` and `APP_PORT`: local backend address; defaults are `127.0.0.1` and
+  `8000`.
+- `STORIES_DIR`: campaign storage location; default is `./data/stories`.
+
+Python dependencies are listed in `backend/requirements.txt`. Frontend dependencies
+and commands are defined in `frontend/package.json`. The local FastAPI documentation
+is available at `http://127.0.0.1:8000/docs` while the backend is running.
