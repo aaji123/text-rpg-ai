@@ -1,7 +1,6 @@
 """Validate and persist each campaign's play preferences."""
 
-from typing import Literal
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -16,7 +15,7 @@ class StorySettings(BaseModel):
 
     difficulty: Literal["Easy", "Moderate", "Hard"] = "Moderate"
     mode: Literal["Dice-heavy", "Narrative-heavy", "Hybrid"] = "Hybrid"
-    tone: Literal["Grim", "Heroic", "Mystery"] = "Heroic"
+    tone: Literal["Gritty", "Heroic", "Mysterious", "Dark", "Whimsical", "Philosophical"] = "Heroic"
     world_power_level: Literal["Low", "Medium", "High/Cosmic"] = "Medium"
 
 

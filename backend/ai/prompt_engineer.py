@@ -17,8 +17,11 @@ Play mode: {settings['mode']}
 Tone: {settings['tone']}
 World power level: {settings['world_power_level']}
 Genre: {settings['world_template']}
+Starting plane: {settings['starting_plane']}
 Highest power level that exists in this world: {settings['highest_power_level']}
 Realm hierarchy from lowest to highest: {" → ".join(str(realm) for realm in settings['realm_hierarchy'])}
+House rules: {settings.get('house_rules') or 'None supplied'}
+Atmosphere notes: {settings.get('atmosphere') or 'None supplied'}
 Never introduce a being or challenge above the world's stated ceiling. Keep the
 strongest tiers distant until the character's realm and story progress justify them;
 use rumors, relics, and indirect effects to foreshadow them earlier.
@@ -42,6 +45,18 @@ CURRENT GAME CONTEXT:
 Treat the plot pillars as long-term intentions, not a checklist. Seed relevant
 opportunities and consequences naturally, leave room for player choices, and never
 force a pillar to happen on a fixed schedule.
+
+Only let the character use techniques recorded in the Technique Library, and limit
+each use to its recorded proficiency; an unlisted technique cannot succeed as a
+known skill. A new technique can be learned only through an explicit story event;
+reflect that earned event in the update metadata. Keep established NPC attitudes and confirmed Lore Bank facts
+consistent. At the end of every response, append one hidden metadata line using this
+exact shape (valid JSON, no Markdown code fence):
+<!-- RPG_STATE_UPDATE: {{"relationships":[{{"name":"NPC","attitude":"Friendly","notes":"short confirmed update"}}],"lore_bank":[{{"fact":"confirmed world fact","source":"where it was learned"}}],"techniques":[{{"name":"technique","proficiency":"Novice","description":"short description"}}]}} -->
+Include only new or changed facts, use empty arrays for unchanged categories, and
+use only Friendly, Neutral, Wary, Hostile, or Unknown for NPC attitudes and only
+Untrained, Novice, Practiced, Proficient, or Mastered for technique proficiency.
+Never use this metadata to grant stats, items, or unearned abilities. Keep it concise.
 """
 
 
@@ -51,8 +66,9 @@ def build_brainstorm_prompt(idea: str, world_settings: dict[str, object]) -> str
     realm_hierarchy = world_settings.get("realm_hierarchy", [])
     realms = " → ".join(str(realm) for realm in realm_hierarchy) if isinstance(realm_hierarchy, list) else "unspecified"
     return f"""You are in brainstorm mode for a solo role-playing campaign.
-Return only a JSON array of exactly three concise, distinct strings. Each suggestion
-should expand the player's vague idea while fitting the setting and power ceiling.
+Return only a JSON array of exactly three concise, distinct strings. Keep every
+suggestion under 160 characters. Each suggestion should expand the player's vague
+idea while fitting the setting and power ceiling.
 Keep every suggestion optional and open-ended; preserve player agency and avoid
 forcing a particular outcome.
 
@@ -62,9 +78,42 @@ PLAYER'S IDEA:
 WORLD SETTINGS:
 Genre: {world_settings.get('world_template', 'Fantasy')}
 Starting setting: {world_settings.get('setting_description', 'unspecified')}
+Starting plane: {world_settings.get('starting_plane', 'Mortal Plane')}
 Adventure tone: {world_settings.get('tone', 'Heroic')}
 Play mode: {world_settings.get('mode', 'Hybrid')}
 World power level: {world_settings.get('world_power_level', 'Medium')}
 Highest power level: {world_settings.get('highest_power_level', 'unspecified')}
 Realm hierarchy, lowest to highest: {realms}
+House rules: {world_settings.get('house_rules', 'None supplied')}
+Atmosphere notes: {world_settings.get('atmosphere', 'None supplied')}
+"""
+
+
+def build_example_prompt(field_name: str, world_settings: dict[str, object]) -> str:
+    """Generate one concise genre-aware example for a specific setup field."""
+
+    labels = {
+        "setting_description": "a story opening that describes where and when play begins",
+        "house_rules": "one or two clear house rules that guide play",
+        "atmosphere": "a few sensory or stylistic notes for the desired atmosphere",
+    }
+    field_description = labels.get(field_name)
+    if not field_description:
+        raise ValueError("Choose a supported example field.")
+    hierarchy = world_settings.get("realm_hierarchy", [])
+    realms = " → ".join(str(value) for value in hierarchy) if isinstance(hierarchy, list) else "unspecified"
+    return f"""Give one short example (one or two sentences, under 70 words) for {field_description}.
+It is guidance the user can edit, not a fact that must enter their campaign.
+Use the requested genre and respect the highest power level. Return only the example text.
+
+Genre: {world_settings.get('world_template', 'Fantasy')}
+Starting setting: {world_settings.get('setting_description', '')}
+Starting plane: {world_settings.get('starting_plane', 'Mortal Plane')}
+Tone: {world_settings.get('tone', 'Heroic')}
+Play mode: {world_settings.get('mode', 'Hybrid')}
+World power level: {world_settings.get('world_power_level', 'Medium')}
+Highest power level: {world_settings.get('highest_power_level', 'unspecified')}
+Realm hierarchy: {realms}
+House rules: {world_settings.get('house_rules', '')}
+Atmosphere: {world_settings.get('atmosphere', '')}
 """

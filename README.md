@@ -1,6 +1,6 @@
 # Text RPG AI
 
-A local-first, single-player RPG companion. Campaigns are stored as structured JSON and readable Markdown files on your computer. `state.json` is the source of truth for character identity, stats, inventory, realm progress, goals, and plot pillars; the backend regenerates Markdown summaries from it. Before narration, the backend gathers this state, campaign settings, and recent events. Your story files stay on your machine unless you choose to share the story folder. Narrator messages and any premise you submit to the optional brainstorm feature are sent to Groq for a response.
+A local-first, single-player RPG companion. Campaigns are stored as structured JSON and readable Markdown files on your computer. `state.json` is the source of truth for character identity, stats, inventory, realm progress, goals, and plot pillars; the backend regenerates Markdown summaries from it. Before narration, the backend gathers this state, campaign settings, and recent events. Your story files stay on your machine unless you choose to share the story folder. Narrator messages, brainstorm ideas, and world-field example requests are sent to Groq for a response.
 
 ## Requirements
 
@@ -45,6 +45,8 @@ Open the local address printed by Vite (normally `http://127.0.0.1:5173`). The b
 
 ## Story files
 
-Campaigns are created under `data/stories/`. Each campaign has `state.json`, generated `character_state.md`, `goals.md`, `plot_pillars.md`, `story.md`, `settings.json`, and a `sessions/` directory of timestamped Markdown events. The setup wizard lets you choose a genre, stat allocation, starting items, realm ladder, highest power level, tone, and play mode. The realm ladder and highest power level are saved per campaign so the narrator respects the world's ceiling. Back up or share a campaign by copying its folder. The `data/` directory is excluded from Git to keep personal stories out of source control.
+Campaigns are created under `data/stories/`. Each campaign has `state.json` (the source of truth), generated `character_state.md`, `goals.md`, `plot_pillars.md`, `story.md`, `settings.json`, and timestamped Markdown events under `sessions/`. State includes inventory counts, realm progress, NPC relationships, confirmed lore, and learned techniques. The setup wizard lets you choose a genre, background, stat allocation, starting items, starting plane, realm ladder, highest power level, house rules, tone, and play mode. The Xianxia template includes the staged cultivation ladder from Mortal/Beginner through Origin Ancestor; custom hierarchies can be pasted and edited. The narrator receives the world ceiling and rules with every turn. It may update the NPC, lore, and technique records through a bounded metadata footer; stats and items stay under backend game logic. Back up or share a campaign by copying its folder. The `data/` directory is excluded from Git to keep personal stories out of source control.
+
+The home screen supports creating, continuing, importing, exporting, and deleting campaigns. Imports accept campaign ZIP archives created by the app; the backend checks archive paths, symlinks, file counts, and size limits and only copies supported campaign files. Example text for world-building fields is generated with the selected genre and world settings. Background templates are hard-coded in the frontend and do not use Groq. Use the theme button in the header to switch between dark and light mode.
 
 Use `/roll 1d20` or `/roll 2d6+3` in the chat input to save a dice result into the campaign history.

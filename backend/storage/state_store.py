@@ -108,6 +108,20 @@ class StateStore:
                 lines.append(label)
         else:
             lines.append("- (empty)")
+        for title, key, display_key in (
+            ("Relationships", "relationships", "name"),
+            ("Lore Bank", "lore_bank", "fact"),
+            ("Technique Library", "techniques", "name"),
+        ):
+            lines.extend(["", f"## {title}"])
+            entries = state.get(key, [])
+            if not entries:
+                lines.append("- (empty)")
+                continue
+            for entry in entries:
+                summary = StateStore._clean(entry.get(display_key, ""))
+                details = [StateStore._clean(value) for name, value in entry.items() if name != display_key and value]
+                lines.append(f"- {summary}" + (f" — {'; '.join(details)}" if details else ""))
         return "\n".join(lines) + "\n"
 
     @staticmethod

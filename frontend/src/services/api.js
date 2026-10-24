@@ -15,8 +15,24 @@ export const api = {
   stories: () => request("/stories"),
   createStory: (story) => request("/stories", { method: "POST", body: JSON.stringify(story) }),
   brainstorm: (idea, worldSettings) => request("/stories/brainstorm", { method: "POST", body: JSON.stringify({ idea, ...worldSettings }) }),
+  generateExample: (field, worldSettings) => request("/stories/example", { method: "POST", body: JSON.stringify({ field, ...worldSettings }) }),
   loadStory: (id) => request(`/stories/${encodeURIComponent(id)}`),
   sendMessage: (id, message) => request(`/stories/${encodeURIComponent(id)}/chat`, { method: "POST", body: JSON.stringify({ message }) }),
   rollDice: (id, notation) => request(`/stories/${encodeURIComponent(id)}/dice`, { method: "POST", body: JSON.stringify({ notation }) }),
   saveSettings: (id, settings) => request(`/stories/${encodeURIComponent(id)}/settings`, { method: "PUT", body: JSON.stringify(settings) }),
+  importStory: async (file) => {
+    const response = await fetch(`${API_BASE}/stories/import`, { method: "POST", headers: { "Content-Type": "application/zip" }, body: file });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || "The story archive could not be imported.");
+    return data;
+  },
+  exportStory: async (id) => {
+    const response = await fetch(`${API_BASE}/stories/${encodeURIComponent(id)}/export`);
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.detail || "The story could not be exported.");
+    }
+    return response.blob();
+  },
+  deleteStory: (id) => request(`/stories/${encodeURIComponent(id)}`, { method: "DELETE" }),
 };

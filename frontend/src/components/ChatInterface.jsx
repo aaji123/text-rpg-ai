@@ -1,4 +1,5 @@
 import { useState } from "react";
+import HelpTip from "./HelpTip.jsx";
 
 /** Render the active exchange and keep action entry usable during requests. */
 export default function ChatInterface({ messages, onSend, onRoll, busy }) {
@@ -23,7 +24,7 @@ export default function ChatInterface({ messages, onSend, onRoll, busy }) {
         {busy && <div className="typing"><i /><i /><i /> <span>The narrator is thinking</span></div>}
       </div>
       <form className="composer" onSubmit={submit}>
-        <input value={text} onChange={(event) => setText(event.target.value)} placeholder="Describe your action…" aria-label="Your action" disabled={busy} />
+        <div className="action-input-wrap"><input value={text} onChange={(event) => setText(event.target.value)} placeholder="Describe your action…" aria-label="Your action" disabled={busy} /><HelpTip text="Describe what your character attempts. The AI uses your character state, world rules, and recent history to narrate the outcome." /></div>
         <button type="submit" disabled={busy || !text.trim()} aria-label="Send action">↗</button>
       </form>
       <div className="composer-hint">ENTER TO SEND <span>·</span> TRY <code>/roll 2d6+3</code></div>

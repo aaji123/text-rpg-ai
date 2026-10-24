@@ -2,7 +2,12 @@
 
 import json
 import re
+import shutil
+import stat
+import zipfile
+from io import BytesIO
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any
 
 from backend.storage.markdown_handler import MarkdownHandler
@@ -19,14 +24,28 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "world_template": "Fantasy",
     "world_power_level": "Medium",
     "highest_power_level": "Mythic",
+    "starting_plane": "Mortal Plane",
+    "house_rules": "",
+    "atmosphere": "",
     "realm_hierarchy": ["Commoner", "Novice", "Adept", "Expert", "Master", "Legendary", "Mythic"],
 }
+_CULTIVATION_REALMS = [
+    ("Body Tempering", "Qi Refining", "Foundation Establishment", "Core Formation", "Golden Core"),
+    ("Nascent Soul", "Soul Formation", "Divine Transformation", "Void Refinement", "Integration"),
+    ("True Immortal", "Heavenly Immortal", "Golden Immortal"),
+    ("Immortal King", "Immortal Emperor", "Celestial Immortal", "Dao Lord", "Eternal Sovereign"),
+    ("Heavenly Dao Master", "Saint/Sage", "Supreme Saint", "Chaos Realm", "Universal Creator", "Origin Ancestor"),
+]
+XIANXIA_REALM_HIERARCHY = [
+    "Mortal/Beginner",
+    *(f"{realm} — {stage}" for group in _CULTIVATION_REALMS for realm in group for stage in ("Early", "Mid", "Late")),
+]
 WORLD_TEMPLATES: dict[str, dict[str, Any]] = {
     "Xianxia": {
         "stats": ["Strength", "Agility", "Constitution", "Comprehension", "Perception", "Willpower"],
         "resource": "Qi",
         "extra": "Cultivation Stage",
-        "realms": ["Body Tempering", "Qi Condensation", "Foundation Establishment", "Core Formation", "Nascent Soul", "Spirit Severing", "Dao Integration", "Tribulation Transcendence", "Immortal"],
+        "realms": XIANXIA_REALM_HIERARCHY,
     },
     "Fantasy": {
         "stats": ["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"],
@@ -87,7 +106,10 @@ class StoryManager:
         """Resolve a checked story identifier and confirm it stays under storage."""
 
         safe_id = self._validate_story_id(story_id)
-        path = (self.stories_dir / safe_id).resolve()
+        candidate = self.stories_dir / safe_id
+        if candidate.is_symlink():
+            raise ValueError("Invalid story identifier.")
+        path = candidate.resolve()
         if path.parent != self.stories_dir:
             raise ValueError("Invalid story identifier.")
         return path
@@ -133,6 +155,135 @@ class StoryManager:
         self.write_settings(story_id, story_settings)
         return {"id": story_id, "name": name.strip()}
 
+    def import_archive(self, archive_bytes: bytes, requested_name: str = "") -> dict[str, str]:
+        """Validate a portable story ZIP and copy only recognized files into storage."""
+
+        if not archive_bytes or len(archive_bytes) > 25 * 1024 * 1024:
+            raise ValueError("Story archive must be no larger than 25 MB.")
+        try:
+            archive = zipfile.ZipFile(BytesIO(archive_bytes))
+        except (zipfile.BadZipFile, OSError) as error:
+            raise ValueError("Choose a valid story ZIP archive.") from error
+        with archive:
+            entries = archive.infolist()
+            if not 1 <= len(entries) <= 1200:
+                raise ValueError("Story archive contains too many files.")
+            safe_entries: list[tuple[zipfile.ZipInfo, tuple[str, ...]]] = []
+            for entry in entries:
+                raw_name = entry.filename
+                if "\\" in raw_name or "\x00" in raw_name:
+                    raise ValueError("Story archive contains an unsafe file name.")
+                path = PurePosixPath(raw_name)
+                if path.is_absolute() or any(part in {"..", "."} for part in path.parts):
+                    raise ValueError("Story archive contains an unsafe file path.")
+                file_mode = entry.external_attr >> 16
+                if stat.S_ISLNK(file_mode):
+                    raise ValueError("Story archives cannot contain symbolic links.")
+                if not entry.is_dir():
+                    safe_entries.append((entry, path.parts))
+
+            state_entries = [(entry, parts) for entry, parts in safe_entries if parts[-1:] == ("state.json",)]
+            if len(state_entries) != 1:
+                raise ValueError("Story archive must contain exactly one state.json file.")
+            _, state_parts = state_entries[0]
+            root_prefix = state_parts[:-1]
+            if len(root_prefix) > 1:
+                raise ValueError("Story files may be at the archive root or in one campaign folder.")
+            extracted: dict[str, bytes] = {}
+            uncompressed_total = 0
+            for entry, parts in safe_entries:
+                if root_prefix:
+                    if parts[:len(root_prefix)] != root_prefix:
+                        raise ValueError("Story archive mixes files from multiple folders.")
+                    parts = parts[len(root_prefix):]
+                relative_name = "/".join(parts)
+                if relative_name in extracted:
+                    raise ValueError("Story archive contains duplicate paths.")
+                allowed = relative_name in {"state.json", "settings.json"} or relative_name in {
+                    "character_state.md", "goals.md", "plot_pillars.md", "story.md"
+                } or bool(re.fullmatch(r"sessions/session_\d{4}-\d{2}-\d{2}\.md", relative_name))
+                if not allowed:
+                    raise ValueError("Story archive contains an unsupported file.")
+                file_limit = 5 * 1024 * 1024 if relative_name.startswith("sessions/") else 2 * 1024 * 1024
+                if entry.file_size > file_limit:
+                    raise ValueError("A file in the story archive exceeds its size limit.")
+                uncompressed_total += entry.file_size
+                if uncompressed_total > 25 * 1024 * 1024:
+                    raise ValueError("Uncompressed story data exceeds 25 MB.")
+                try:
+                    contents = archive.read(entry)
+                except (zipfile.BadZipFile, RuntimeError, OSError) as error:
+                    raise ValueError("A story archive file could not be safely read.") from error
+                if len(contents) != entry.file_size:
+                    raise ValueError("A story archive file did not match its declared size.")
+                extracted[relative_name] = contents
+
+        try:
+            state = json.loads(extracted["state.json"].decode("utf-8"))
+            raw_settings = json.loads(extracted.get("settings.json", b"{}").decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ValueError("Story JSON files must contain valid UTF-8 JSON.") from error
+        if not isinstance(state, dict) or not isinstance(raw_settings, dict):
+            raise ValueError("Story state and settings must be JSON objects.")
+        world_template = str(raw_settings.get("world_template", state.get("world_template", "Fantasy")))
+        if world_template not in WORLD_TEMPLATES:
+            raise ValueError("Story archive uses an unsupported world template.")
+        settings = self._validate_world_settings(world_template, raw_settings)
+        difficulty = raw_settings.get("difficulty", "Moderate")
+        settings["difficulty"] = difficulty if isinstance(difficulty, str) and difficulty in {"Easy", "Moderate", "Hard"} else "Moderate"
+        state["world_template"] = world_template
+        name = requested_name.strip() or str(state.get("campaign_name", "Imported Story")).strip()
+        slug = self._slug_for_name(name)
+        story_id = slug
+        suffix = 2
+        while (self.stories_dir / story_id).exists():
+            story_id = f"{slug}-{suffix}"
+            suffix += 1
+        normalized_state = self._normalize_existing_state(state, settings)
+        normalized_state["campaign_name"] = name[:60]
+        root = self.story_path(story_id)
+        root.mkdir()
+        try:
+            (root / "sessions").mkdir()
+            self.state_store.write(root, normalized_state, WORLD_TEMPLATES[world_template]["resource"])
+            (root / "settings.json").write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            for relative_name, contents in extracted.items():
+                if relative_name.startswith("sessions/"):
+                    destination = root.joinpath(*PurePosixPath(relative_name).parts)
+                    destination.write_bytes(contents)
+        except OSError:
+            shutil.rmtree(root, ignore_errors=True)
+            raise
+        return {"id": story_id, "name": normalized_state["campaign_name"]}
+
+    def export_archive(self, story_id: str) -> bytes:
+        """Package only portable campaign documents for safe sharing and import."""
+
+        root = self.story_path(story_id)
+        if not root.is_dir():
+            raise FileNotFoundError("Story not found.")
+        self.load_state(story_id)
+        output = BytesIO()
+        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for filename in ("state.json", "settings.json", "character_state.md", "goals.md", "plot_pillars.md", "story.md"):
+                path = root / filename
+                if path.is_file() and not path.is_symlink():
+                    archive.write(path, filename)
+            sessions_dir = root / "sessions"
+            if sessions_dir.is_dir() and not sessions_dir.is_symlink():
+                for path in sorted(sessions_dir.glob("session_*.md")):
+                    if path.is_file() and not path.is_symlink() and path.resolve().parent == sessions_dir.resolve():
+                        archive.write(path, f"sessions/{path.name}")
+        return output.getvalue()
+
+    def delete_story(self, story_id: str) -> None:
+        """Remove one checked campaign folder after confirming it is a local directory."""
+
+        root = self.story_path(story_id)
+        if not root.is_dir() or root.parent != self.stories_dir:
+            raise FileNotFoundError("Story not found.")
+        shutil.rmtree(root)
+
     @staticmethod
     def _validate_world_settings(world_template: str, supplied: dict[str, Any]) -> dict[str, Any]:
         """Validate editable realm progression and its declared world ceiling."""
@@ -142,8 +293,8 @@ class StoryManager:
         if not isinstance(realms, list):
             raise ValueError("Realm hierarchy must be a list of names.")
         realms = [str(realm).strip() for realm in realms if str(realm).strip()]
-        if not 2 <= len(realms) <= 20 or any(len(realm) > 60 for realm in realms):
-            raise ValueError("Realm hierarchy must contain 2 to 20 names, each 60 characters or fewer.")
+        if not 2 <= len(realms) <= 100 or any(len(realm) > 100 for realm in realms):
+            raise ValueError("Realm hierarchy must contain 2 to 100 names, each 100 characters or fewer.")
         if len({realm.casefold() for realm in realms}) != len(realms):
             raise ValueError("Realm names must be unique.")
         highest = str(supplied.get("highest_power_level", realms[-1])).strip()
@@ -156,8 +307,15 @@ class StoryManager:
         if mode not in {"Dice-heavy", "Narrative-heavy", "Hybrid"}:
             raise ValueError("Play mode must be Dice-heavy, Narrative-heavy, or Hybrid.")
         tone = str(supplied.get("tone", "Heroic"))
-        if tone not in {"Grim", "Heroic", "Mystery"}:
-            raise ValueError("Tone must be Grim, Heroic, or Mystery.")
+        tone_aliases = {"Grim": "Gritty", "Mystery": "Mysterious", "Dark": "Dark", "Whimsical": "Whimsical", "Philosophical": "Philosophical"}
+        tone = tone_aliases.get(tone, tone)
+        if tone not in {"Gritty", "Heroic", "Mysterious", "Dark", "Whimsical", "Philosophical"}:
+            raise ValueError("Choose a supported adventure tone.")
+        starting_plane = str(supplied.get("starting_plane", "Mortal Plane")).strip()
+        house_rules = str(supplied.get("house_rules", "")).strip()
+        atmosphere = str(supplied.get("atmosphere", "")).strip()
+        if not starting_plane or len(starting_plane) > 100 or len(house_rules) > 2000 or len(atmosphere) > 2000:
+            raise ValueError("Starting plane, house rules, or atmosphere exceeds its allowed length.")
         return {
             "difficulty": "Moderate",
             "mode": mode,
@@ -165,6 +323,9 @@ class StoryManager:
             "world_power_level": power_level,
             "highest_power_level": highest,
             "realm_hierarchy": realms,
+            "starting_plane": starting_plane,
+            "house_rules": house_rules,
+            "atmosphere": atmosphere,
             "world_template": world_template,
         }
 
@@ -214,6 +375,9 @@ class StoryManager:
             "resource": {"current": 0, "maximum": 0},
             "realm_progress": {"current": current_realm, "rank_index": 0},
             "inventory": inventory,
+            "relationships": [],
+            "lore_bank": [],
+            "techniques": [],
         }
 
     @staticmethod
@@ -298,6 +462,9 @@ class StoryManager:
         candidate["setting_description"] = str(state.get("setting_description", "A new adventure begins."))[:2000]
         candidate["plot_pillars"] = self._normalize_string_list(state.get("plot_pillars", []), 12, 160)
         candidate["active_goals"] = self._normalize_string_list(state.get("active_goals", []), 40, 160)
+        candidate["relationships"] = self._normalize_records(state.get("relationships", []), {"name": 80, "attitude": 40, "notes": 500}, 100)
+        candidate["lore_bank"] = self._normalize_records(state.get("lore_bank", []), {"fact": 500, "source": 120}, 200)
+        candidate["techniques"] = self._normalize_records(state.get("techniques", []), {"name": 100, "proficiency": 40, "description": 300}, 100)
         resource = state.get("resource", {})
         if isinstance(resource, dict):
             maximum = resource.get("maximum", 0)
@@ -323,6 +490,20 @@ class StoryManager:
         if not isinstance(values, list):
             return []
         return [str(value).strip()[:maximum_length] for value in values[:maximum_items] if str(value).strip()]
+
+    @staticmethod
+    def _normalize_records(values: Any, fields: dict[str, int], maximum_items: int) -> list[dict[str, str]]:
+        """Bound model-suggested lore records so persisted state stays predictable."""
+
+        if not isinstance(values, list):
+            return []
+        records = []
+        for value in values[:maximum_items]:
+            if isinstance(value, dict):
+                record = {key: str(value.get(key, "")).strip()[:limit] for key, limit in fields.items()}
+                if any(record.values()):
+                    records.append(record)
+        return records
 
     def _migrate_legacy_state(self, root: Path, settings: dict[str, Any]) -> dict[str, Any]:
         """Convert an older Markdown-only character sheet into structured JSON once."""
@@ -403,6 +584,50 @@ class StoryManager:
             self.save_state(story_id, state)
         return changes
 
+    def apply_narrative_updates(self, story_id: str, updates: dict[str, Any]) -> list[str]:
+        """Persist bounded NPC, lore, and technique facts returned with a narrator turn."""
+
+        state = self.load_state(story_id)
+        changed: list[str] = []
+        mapping = {
+            "relationships": ("name", {"Friendly", "Neutral", "Wary", "Hostile", "Unknown"}),
+            "lore_bank": ("fact", None),
+            "techniques": ("name", {"Untrained", "Novice", "Practiced", "Proficient", "Mastered"}),
+        }
+        for collection, (identity_key, allowed_values) in mapping.items():
+            incoming = updates.get(collection, [])
+            if not isinstance(incoming, list):
+                continue
+            current = state[collection]
+            index = {str(item.get(identity_key, "")).casefold(): position for position, item in enumerate(current)}
+            for item in incoming[:20]:
+                if not isinstance(item, dict) or not str(item.get(identity_key, "")).strip():
+                    continue
+                normalized = self._normalize_records([item], {
+                    field: limit for field, limit in (
+                        ("name", 100), ("attitude", 40), ("notes", 500),
+                        ("fact", 500), ("source", 120), ("proficiency", 40),
+                        ("description", 300),
+                    ) if field in item
+                }, 1)
+                if not normalized:
+                    continue
+                record = normalized[0]
+                if allowed_values:
+                    property_name = "attitude" if collection == "relationships" else "proficiency"
+                    if record.get(property_name) not in allowed_values:
+                        continue
+                key = record[identity_key].casefold()
+                if key in index:
+                    current[index[key]].update(record)
+                else:
+                    current.append(record)
+                    index[key] = len(current) - 1
+                changed.append(record[identity_key])
+        if changed:
+            self.save_state(story_id, state)
+        return changed
+
     def list_stories(self) -> list[dict[str, str]]:
         """Expose story ids and friendly names without returning local paths."""
 
@@ -453,7 +678,7 @@ class StoryManager:
         settings = {**DEFAULT_SETTINGS, **{key: value for key, value in stored.items() if key in DEFAULT_SETTINGS}}
         if settings["world_template"] not in WORLD_TEMPLATES:
             settings["world_template"] = DEFAULT_SETTINGS["world_template"]
-        if not isinstance(stored.get("realm_hierarchy"), list):
+        if not isinstance(stored.get("realm_hierarchy"), list) or not 2 <= len(stored["realm_hierarchy"]) <= 100:
             settings["realm_hierarchy"] = list(WORLD_TEMPLATES[settings["world_template"]]["realms"])
         if settings.get("highest_power_level") not in settings["realm_hierarchy"]:
             settings["highest_power_level"] = settings["realm_hierarchy"][-1]
@@ -463,7 +688,7 @@ class StoryManager:
             settings["mode"] = "Dice-heavy"
         elif settings["mode"] == "Narrative":
             settings["mode"] = "Narrative-heavy"
-        if settings["tone"] not in {"Grim", "Heroic", "Mystery"}:
+        if settings["tone"] not in {"Grim", "Heroic", "Mystery", "Gritty", "Mysterious", "Dark", "Whimsical", "Philosophical"}:
             settings["tone"] = "Heroic"
         if settings.get("difficulty") not in {"Easy", "Moderate", "Hard"}:
             settings["difficulty"] = "Moderate"

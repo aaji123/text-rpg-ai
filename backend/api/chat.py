@@ -1,5 +1,8 @@
 """Handle narrator turns and persistent dice-roll events."""
 
+import json
+import re
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -47,6 +50,16 @@ async def send_message(story_id: str, request: ChatRequest) -> dict[str, str]:
     except Exception as error:
         stories.append_event(story_id, "Narrator turn failed", f"**Player:** {request.message.strip()}\n\n**Result:** The AI service could not complete this turn.")
         raise HTTPException(status_code=502, detail="The narrator service could not complete the turn.") from error
+
+    update_match = re.search(r"<!--\s*RPG_STATE_UPDATE:\s*(\{[\s\S]*?\})\s*-->", response)
+    if update_match:
+        try:
+            updates = json.loads(update_match.group(1))
+            if isinstance(updates, dict):
+                stories.apply_narrative_updates(story_id, updates)
+        except (json.JSONDecodeError, ValueError):
+            pass
+        response = (response[:update_match.start()] + response[update_match.end():]).strip()
 
     stories.append_event(story_id, "Conversation turn", f"**Player:** {request.message.strip()}\n\n**Narrator:** {response}")
     return {"response": response}
