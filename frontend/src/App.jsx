@@ -4,6 +4,7 @@ import StorySelector from "./components/StorySelector.jsx";
 import ChatInterface from "./components/ChatInterface.jsx";
 import CharacterSheet from "./components/CharacterSheet.jsx";
 import SettingsPanel from "./components/SettingsPanel.jsx";
+import StoryInitializer from "./components/StoryInitializer.jsx";
 
 /** Coordinate story selection, game actions, settings, and local status. */
 export default function App() {
@@ -12,6 +13,8 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [initializerOpen, setInitializerOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   /** Rebuild the visible recent transcript from the portable Markdown event log. */
   function restoreMessages(history) {
@@ -52,15 +55,28 @@ export default function App() {
 
   useEffect(() => { refreshStories(); }, []);
 
-  /** Create a campaign from a browser prompt and open it immediately. */
+  /** Open the guided campaign setup so required story context is captured first. */
   async function createStory() {
-    const name = window.prompt("Name your new story:");
-    if (!name?.trim()) return;
+    setInitializerOpen(true);
+    setError("");
+  }
+
+  /** Persist all wizard choices together and enter the new campaign. */
+  async function submitStoryInitialization(storyDraft) {
+    setCreating(true);
     try {
-      const created = await api.createStory(name.trim());
+      const created = await api.createStory(storyDraft);
       setStories((current) => [...current, created]);
+      setInitializerOpen(false);
       await selectStory(created.id);
     } catch (reason) { setError(reason.message); }
+    finally { setCreating(false); }
+  }
+
+  /** Connect the wizard's optional ideas button to the local API service. */
+  async function brainstorm(idea, worldTemplate) {
+    const result = await api.brainstorm(idea, worldTemplate);
+    return result.suggestions;
   }
 
   /** Send a player action and show both sides of the saved conversation turn. */
@@ -99,8 +115,9 @@ export default function App() {
       {error && <div className="error-banner" role="alert">{error}<button onClick={() => setError("")}>×</button></div>}
       {!story ? <section className="empty-state"><span>✧</span><h1>A world, waiting.</h1><p>Create a story to begin your adventure.</p><button className="primary" onClick={createStory}>Create your first story</button></section> : <>
         <div className="campaign-heading"><div><span className="eyebrow">ACTIVE CAMPAIGN</span><h1>{story.name}</h1></div><span className="campaign-badge">✦ &nbsp;{story.settings.mode.toUpperCase()} MODE</span></div>
-        <div className="workspace"><ChatInterface messages={messages} onSend={sendMessage} onRoll={rollDice} busy={busy} /><aside className="sidebar"><CharacterSheet character={story.character} goals={story.goals} /><SettingsPanel settings={story.settings} onChange={changeSettings} disabled={busy} /><p className="privacy-note">Your story data stays on this machine unless you choose to share its folder. Narrator messages are sent to Groq when you play.</p></aside></div>
+        <div className="workspace"><ChatInterface messages={messages} onSend={sendMessage} onRoll={rollDice} busy={busy} /><aside className="sidebar"><CharacterSheet character={story.character} goals={story.goals} plotPillars={story.plot_pillars} worldTemplate={story.settings.world_template} /><SettingsPanel settings={story.settings} onChange={changeSettings} disabled={busy} /><p className="privacy-note">Your story data stays on this machine unless you choose to share its folder. Narrator messages and brainstorm ideas are sent to Groq.</p></aside></div>
       </>}
+      {initializerOpen && <StoryInitializer onCancel={() => setInitializerOpen(false)} onCreate={submitStoryInitialization} onBrainstorm={brainstorm} busy={creating} externalError={error} />}
       <footer className="footer"><span>TEXT RPG AI</span><span>✦ &nbsp; YOUR STORY, YOURS TO KEEP</span></footer>
     </main>
   );

@@ -19,8 +19,10 @@ class GameState:
         return "\n\n".join(
             (
                 f"STORY: {story['name']}",
+                "STARTING SETTING:\n" + story["setting_description"],
                 "CHARACTER STATE (treat as authoritative):\n" + story["character"],
                 "ACTIVE GOALS:\n" + story["goals"],
+                "LONG-TERM PLOT PILLARS (player-selected narrative anchors):\n" + story["plot_pillars"],
                 "RECENT HISTORY:\n" + (recent_events or "No events have been recorded yet."),
             )
         )

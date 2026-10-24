@@ -13,6 +13,14 @@ useful choice or prompt for the player's next action.
 Difficulty: {settings['difficulty']}
 Play mode: {settings['mode']}
 Tone: {settings['tone']}
+World power level: {settings['world_power_level']}
+
+Power scaling guidance: At Low power, keep threats grounded, victories costly, and
+advancement incremental. At Medium power, let abilities and threats grow steadily
+with meaningful milestones. At High/Cosmic power, allow extreme scale and spectacular
+feats, while preserving clear limits, credible counterplay, and earned progression.
+Match challenge scale to the character's established abilities. Do not skip several
+power tiers or grant major upgrades without a story-earned cause.
 
 In Dice mode, call for uncertainty to be resolved with dice and do not invent a roll.
 In Narrative mode, resolve ordinary uncertain actions through the fiction without
@@ -22,4 +30,8 @@ unless the application supplied its result.
 
 CURRENT GAME CONTEXT:
 {game_context}
+
+Treat the plot pillars as long-term intentions, not a checklist. Seed relevant
+opportunities and consequences naturally, leave room for player choices, and never
+force a pillar to happen on a fixed schedule.
 """

@@ -13,7 +13,8 @@ async function request(path, options = {}) {
 
 export const api = {
   stories: () => request("/stories"),
-  createStory: (name) => request("/stories", { method: "POST", body: JSON.stringify({ name }) }),
+  createStory: (story) => request("/stories", { method: "POST", body: JSON.stringify(story) }),
+  brainstorm: (idea, worldTemplate) => request("/stories/brainstorm", { method: "POST", body: JSON.stringify({ idea, world_template: worldTemplate }) }),
   loadStory: (id) => request(`/stories/${encodeURIComponent(id)}`),
   sendMessage: (id, message) => request(`/stories/${encodeURIComponent(id)}/chat`, { method: "POST", body: JSON.stringify({ message }) }),
   rollDice: (id, notation) => request(`/stories/${encodeURIComponent(id)}/dice`, { method: "POST", body: JSON.stringify({ notation }) }),

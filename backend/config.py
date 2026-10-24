@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     app_port: int = Field(default=8000, ge=1, le=65535)
     stories_dir: Path = ROOT_DIR / "data" / "stories"
     groq_api_key: str = ""
-    groq_model: str = "qwen/qwen3-32b"
+    groq_model: str = "qwen/qwen3.8-27b"
 
     model_config = SettingsConfigDict(
         env_file=ROOT_DIR / ".env",

@@ -15,15 +15,58 @@ class GroqNarrator:
         self.model = model
 
     async def reply(self, system_prompt: str, message: str) -> str:
-        """Return one assistant response while keeping SDK details internal."""
+        """Collect streamed narrator text while keeping SDK details internal."""
 
-        response = await self.client.chat.completions.create(
+        stream = await self.client.chat.completions.create(
             model=self.model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": message},
             ],
-            temperature=0.8,
-            max_tokens=700,
+            temperature=0.6,
+            max_completion_tokens=2048,
+            top_p=0.95,
+            reasoning_effort="default",
+            stream=True,
+            stop=None,
         )
-        return response.choices[0].message.content or "The narrator has no response."
+        response_parts: list[str] = []
+        async for chunk in stream:
+            content = chunk.choices[0].delta.content
+            if content:
+                response_parts.append(content)
+        return "".join(response_parts) or "The narrator has no response."
+
+    async def brainstorm(self, idea: str, world_template: str) -> str:
+        """Turn a vague campaign premise into three selectable story anchors."""
+
+        stream = await self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You help a player brainstorm RPG plot pillars. Return only a JSON array "
+                        "of exactly three concise, distinct strings. Each is an optional long-term "
+                        "goal or event, specific enough to guide play but open-ended enough for "
+                        "player agency. Do not include markdown or extra keys."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"World template: {world_template}\nVague idea: {idea}",
+                },
+            ],
+            temperature=0.6,
+            max_completion_tokens=2048,
+            top_p=0.95,
+            reasoning_effort="default",
+            stream=True,
+            stop=None,
+        )
+        response_parts: list[str] = []
+        async for chunk in stream:
+            content = chunk.choices[0].delta.content
+            if content:
+                response_parts.append(content)
+        return "".join(response_parts) or "[]"

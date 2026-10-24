@@ -16,6 +16,7 @@ class StorySettings(BaseModel):
     difficulty: Literal["Easy", "Moderate", "Hard"] = "Moderate"
     mode: Literal["Dice", "Narrative", "Hybrid"] = "Hybrid"
     tone: str = Field(default="Adventurous", min_length=1, max_length=80)
+    world_power_level: Literal["Low", "Medium", "High/Cosmic"] = "Medium"
 
 
 @router.get("")

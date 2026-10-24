@@ -12,28 +12,31 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "difficulty": "Moderate",
     "mode": "Hybrid",
     "tone": "Adventurous",
+    "world_template": "Fantasy",
+    "world_power_level": "Medium",
 }
-DEFAULT_CHARACTER = """# Character Sheet
-
-## Identity
-- Name: Adventurer
-- Level: 1
-
-## Stats
-- Strength: 10
-- Dexterity: 10
-- Constitution: 10
-- Intelligence: 10
-- Wisdom: 10
-- Charisma: 10
-
-## Qi
-- Current: 0
-- Maximum: 0
-
-## Inventory
-- (empty)
-"""
+WORLD_TEMPLATES: dict[str, dict[str, Any]] = {
+    "Xianxia": {
+        "stats": ["Strength", "Agility", "Constitution", "Comprehension", "Perception", "Willpower"],
+        "resource": "Qi",
+        "extra": "Cultivation Stage",
+    },
+    "Fantasy": {
+        "stats": ["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"],
+        "resource": "Mana",
+        "extra": "Class",
+    },
+    "Sci-Fi": {
+        "stats": ["Strength", "Agility", "Endurance", "Intelligence", "Perception", "Technical Skill"],
+        "resource": "Energy",
+        "extra": "Augmentations",
+    },
+    "Cyberpunk": {
+        "stats": ["Body", "Reflexes", "Technical Ability", "Intelligence", "Cool", "Empathy"],
+        "resource": "Stamina",
+        "extra": "Cyberware",
+    },
+}
 DEFAULT_GOALS = "# Active Goals\n\n- (No active goals yet)\n"
 
 
@@ -78,10 +81,23 @@ class StoryManager:
             raise ValueError("Invalid story identifier.")
         return path
 
-    def create_story(self, name: str) -> dict[str, Any]:
-        """Create a complete starter story so the game can begin immediately."""
+    def create_story(
+        self,
+        name: str,
+        world_template: str = "Fantasy",
+        setting_description: str = "",
+        plot_pillars: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Create a complete campaign from wizard inputs before play begins."""
 
         slug = self._slug_for_name(name)
+        if world_template not in WORLD_TEMPLATES:
+            raise ValueError("Choose a supported world template.")
+        if len(setting_description) > 2000:
+            raise ValueError("Setting description must be 2,000 characters or fewer.")
+        pillars = [pillar.strip() for pillar in (plot_pillars or []) if pillar.strip()]
+        if len(pillars) > 12 or any(len(pillar) > 160 for pillar in pillars):
+            raise ValueError("Add up to 12 plot pillars, each 160 characters or fewer.")
         story_id = slug
         suffix = 2
         while (self.stories_dir / story_id).exists():
@@ -90,11 +106,35 @@ class StoryManager:
         root = self.story_path(story_id)
         root.mkdir()
         (root / "sessions").mkdir()
-        self.markdown.write_text(root / "character.md", DEFAULT_CHARACTER)
+        self.markdown.write_text(root / "character_state.md", self._character_template(world_template))
         self.markdown.write_text(root / "goals.md", DEFAULT_GOALS)
-        self.markdown.write_text(root / "story.md", f"# {name.strip()}\n\nA new adventure begins.\n")
-        self.write_settings(story_id, DEFAULT_SETTINGS)
+        self.markdown.write_text(root / "plot_pillars.md", self._plot_pillars_markdown(pillars))
+        setting_text = setting_description.strip() or "A new adventure begins."
+        self.markdown.write_text(root / "story.md", f"# {name.strip()}\n\n## Setting\n\n{setting_text}\n")
+        story_settings = {**DEFAULT_SETTINGS, "world_template": world_template}
+        self.write_settings(story_id, story_settings)
         return {"id": story_id, "name": name.strip()}
+
+    @staticmethod
+    def _character_template(world_template: str) -> str:
+        """Generate a resource and stat sheet that fits the chosen setting genre."""
+
+        template = WORLD_TEMPLATES[world_template]
+        stat_lines = "\n".join(f"- {stat}: 10" for stat in template["stats"])
+        resource = template["resource"]
+        extra = template["extra"]
+        return (
+            "# Character Sheet\n\n## Identity\n- Name: Adventurer\n- Level: 1\n"
+            f"- {extra}: Unset\n\n## Stats\n{stat_lines}\n\n"
+            f"## {resource}\n- Current: 0\n- Maximum: 0\n\n## Inventory\n- (empty)\n"
+        )
+
+    @staticmethod
+    def _plot_pillars_markdown(pillars: list[str]) -> str:
+        """Keep player-chosen narrative anchors separate from immediate goals."""
+
+        items = "\n".join(f"- {pillar}" for pillar in pillars) or "- (No plot pillars chosen yet)"
+        return f"# Plot Pillars\n\n{items}\n"
 
     def list_stories(self) -> list[dict[str, str]]:
         """Expose story ids and friendly names without returning local paths."""
@@ -114,14 +154,27 @@ class StoryManager:
         root = self.story_path(story_id)
         if not root.is_dir():
             raise FileNotFoundError("Story not found.")
+        character_path = root / "character_state.md"
+        legacy_character_path = root / "character.md"
+        default_character = self._character_template(self.read_settings(story_id)["world_template"])
+        character = self.markdown.read_text(character_path, self.markdown.read_text(legacy_character_path, default_character))
         return {
             "id": story_id,
             "name": next((line[2:].strip() for line in self.markdown.read_text(root / "story.md").splitlines() if line.startswith("# ")), story_id),
-            "character": self.markdown.read_text(root / "character.md", DEFAULT_CHARACTER),
+            "character": character,
             "goals": self.markdown.read_text(root / "goals.md", DEFAULT_GOALS),
+            "plot_pillars": self.markdown.read_text(root / "plot_pillars.md", "# Plot Pillars\n\n- (No plot pillars chosen yet)\n"),
+            "setting_description": self._setting_from_markdown(root / "story.md"),
             "settings": self.read_settings(story_id),
             "recent_history": self.recent_session_text(story_id),
         }
+
+    def _setting_from_markdown(self, path: Path) -> str:
+        """Return the saved starting premise without leaking a file path."""
+
+        story_text = self.markdown.read_text(path)
+        match = re.search(r"^## Setting\s*\n+([\s\S]*?)(?=\n## |\Z)", story_text, re.MULTILINE)
+        return match.group(1).strip() if match else "A new adventure begins."
 
     def read_settings(self, story_id: str) -> dict[str, str]:
         """Load settings with safe defaults if a file is missing or malformed."""
@@ -133,7 +186,12 @@ class StoryManager:
             stored = {}
         if not isinstance(stored, dict):
             stored = {}
-        return {**DEFAULT_SETTINGS, **{key: str(value) for key, value in stored.items() if key in DEFAULT_SETTINGS}}
+        settings = {**DEFAULT_SETTINGS, **{key: str(value) for key, value in stored.items() if key in DEFAULT_SETTINGS}}
+        if settings["world_template"] not in WORLD_TEMPLATES:
+            settings["world_template"] = DEFAULT_SETTINGS["world_template"]
+        if settings["world_power_level"] not in {"Low", "Medium", "High/Cosmic"}:
+            settings["world_power_level"] = DEFAULT_SETTINGS["world_power_level"]
+        return settings
 
     def write_settings(self, story_id: str, settings: dict[str, str]) -> dict[str, str]:
         """Persist only supported preference fields to keep config predictable."""
