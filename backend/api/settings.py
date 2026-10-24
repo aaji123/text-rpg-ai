@@ -1,9 +1,10 @@
 """Validate and persist each campaign's play preferences."""
 
 from typing import Literal
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from backend.api.dependencies import get_story_manager
 
@@ -14,13 +15,13 @@ class StorySettings(BaseModel):
     """Constrain options to values the prompt engineer understands."""
 
     difficulty: Literal["Easy", "Moderate", "Hard"] = "Moderate"
-    mode: Literal["Dice", "Narrative", "Hybrid"] = "Hybrid"
-    tone: str = Field(default="Adventurous", min_length=1, max_length=80)
+    mode: Literal["Dice-heavy", "Narrative-heavy", "Hybrid"] = "Hybrid"
+    tone: Literal["Grim", "Heroic", "Mystery"] = "Heroic"
     world_power_level: Literal["Low", "Medium", "High/Cosmic"] = "Medium"
 
 
 @router.get("")
-def read_settings(story_id: str) -> dict[str, str]:
+def read_settings(story_id: str) -> dict[str, Any]:
     """Return saved preferences for the selected story."""
 
     stories = get_story_manager()
@@ -34,7 +35,7 @@ def read_settings(story_id: str) -> dict[str, str]:
 
 
 @router.put("")
-def update_settings(story_id: str, request: StorySettings) -> dict[str, str]:
+def update_settings(story_id: str, request: StorySettings) -> dict[str, Any]:
     """Save validated preferences so subsequent turns use the updated rules."""
 
     stories = get_story_manager()

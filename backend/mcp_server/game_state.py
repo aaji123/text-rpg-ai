@@ -1,10 +1,12 @@
-"""Gather a small, current view of a story before every narrator request."""
+"""Gather current JSON-backed game state before every narrator request."""
+
+import json
 
 from backend.storage.story_manager import StoryManager
 
 
 class GameState:
-    """Represent the Markdown-backed state as consistent prompt context."""
+    """Represent structured character state as consistent prompt context."""
 
     def __init__(self, stories: StoryManager) -> None:
         """Reuse the story manager so context and persistence share one source."""
@@ -20,9 +22,12 @@ class GameState:
             (
                 f"STORY: {story['name']}",
                 "STARTING SETTING:\n" + story["setting_description"],
-                "CHARACTER STATE (treat as authoritative):\n" + story["character"],
-                "ACTIVE GOALS:\n" + story["goals"],
-                "LONG-TERM PLOT PILLARS (player-selected narrative anchors):\n" + story["plot_pillars"],
+                "AUTHORITATIVE CHARACTER STATE JSON:\n" + json.dumps(story["state"], indent=2, ensure_ascii=False),
+                "HUMAN-READABLE CHARACTER SUMMARY:\n" + story["character"],
+                "ACTIVE GOALS (from authoritative JSON):\n"
+                + ("\n".join(f"- {goal}" for goal in story["state"].get("active_goals", [])) or "- None recorded."),
+                "LONG-TERM PLOT PILLARS (player-selected narrative anchors, from authoritative JSON):\n"
+                + ("\n".join(f"- {pillar}" for pillar in story["state"].get("plot_pillars", [])) or "- None recorded."),
                 "RECENT HISTORY:\n" + (recent_events or "No events have been recorded yet."),
             )
         )

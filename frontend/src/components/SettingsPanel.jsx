@@ -4,9 +4,9 @@ export default function SettingsPanel({ settings, onChange, disabled }) {
     <section className="side-card settings-card">
       <div className="side-title"><span className="eyebrow">CAMPAIGN SETTINGS</span><span className="ornament">⚙</span></div>
       <label>Difficulty<select disabled={disabled} value={settings.difficulty} onChange={(event) => onChange({ ...settings, difficulty: event.target.value })}>{["Easy", "Moderate", "Hard"].map((option) => <option key={option}>{option}</option>)}</select></label>
-      <label>Play mode<select disabled={disabled} value={settings.mode} onChange={(event) => onChange({ ...settings, mode: event.target.value })}>{["Dice", "Narrative", "Hybrid"].map((option) => <option key={option}>{option}</option>)}</select></label>
+      <label>Play mode<select disabled={disabled} value={settings.mode} onChange={(event) => onChange({ ...settings, mode: event.target.value })}>{["Dice-heavy", "Narrative-heavy", "Hybrid"].map((option) => <option key={option}>{option}</option>)}</select></label>
       <label>World power level<select disabled={disabled} value={settings.world_power_level || "Medium"} onChange={(event) => onChange({ ...settings, world_power_level: event.target.value })}>{["Low", "Medium", "High/Cosmic"].map((option) => <option key={option}>{option}</option>)}</select></label>
-      <label>Tone<input disabled={disabled} maxLength="80" value={settings.tone} onChange={(event) => onChange({ ...settings, tone: event.target.value })} /></label>
+      <label>Adventure tone<select disabled={disabled} value={settings.tone} onChange={(event) => onChange({ ...settings, tone: event.target.value })}>{["Grim", "Heroic", "Mystery"].map((option) => <option key={option}>{option}</option>)}</select></label>
       <p className="settings-caption">Changes apply to the next narrator turn.</p>
     </section>
   );

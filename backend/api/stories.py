@@ -2,11 +2,12 @@
 
 import json
 import re
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from backend.ai.prompt_engineer import build_brainstorm_prompt
 from backend.api.dependencies import get_narrator, get_story_manager
 
 router = APIRouter(prefix="/api/stories", tags=["stories"])
@@ -19,6 +20,8 @@ class CreateStoryRequest(BaseModel):
     world_template: Literal["Xianxia", "Fantasy", "Sci-Fi", "Cyberpunk"] = "Fantasy"
     setting_description: str = Field(default="", max_length=2000)
     plot_pillars: list[str] = Field(default_factory=list, max_length=12)
+    character: dict[str, Any] = Field(default_factory=dict)
+    world_settings: dict[str, Any] = Field(default_factory=dict)
 
 
 class BrainstormRequest(BaseModel):
@@ -26,6 +29,12 @@ class BrainstormRequest(BaseModel):
 
     idea: str = Field(min_length=3, max_length=1000)
     world_template: Literal["Xianxia", "Fantasy", "Sci-Fi", "Cyberpunk"] = "Fantasy"
+    setting_description: str = Field(default="", max_length=2000)
+    tone: Literal["Grim", "Heroic", "Mystery"] = "Heroic"
+    mode: Literal["Dice-heavy", "Narrative-heavy", "Hybrid"] = "Hybrid"
+    world_power_level: Literal["Low", "Medium", "High/Cosmic"] = "Medium"
+    highest_power_level: str = Field(default="unspecified", max_length=60)
+    realm_hierarchy: list[str] = Field(default_factory=list, max_length=20)
 
 
 @router.get("")
@@ -45,6 +54,8 @@ def create_story(request: CreateStoryRequest) -> dict[str, str]:
             request.world_template,
             request.setting_description,
             request.plot_pillars,
+            request.character,
+            request.world_settings,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -55,7 +66,8 @@ async def brainstorm(request: BrainstormRequest) -> dict[str, list[str]]:
     """Ask Groq for three optional plot anchors without creating a story yet."""
 
     try:
-        raw_suggestions = await get_narrator().brainstorm(request.idea.strip(), request.world_template)
+        settings = request.model_dump(exclude={"idea"})
+        raw_suggestions = await get_narrator().brainstorm(build_brainstorm_prompt(request.idea.strip(), settings), request.idea.strip())
     except ValueError as error:
         raise HTTPException(status_code=503, detail="Groq API key is not configured in .env.") from error
     except Exception as error:

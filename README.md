@@ -1,6 +1,6 @@
 # Text RPG AI
 
-A local-first, single-player RPG companion. Campaigns are stored as readable Markdown and JSON files on your computer. When you send an action, the backend gathers your character sheet, active goals, campaign settings, plot pillars, and recent events before asking Groq for the next narration. Your story files stay on your machine unless you choose to share the story folder. Narrator messages and any premise you submit to the optional brainstorm feature are sent to Groq for a response.
+A local-first, single-player RPG companion. Campaigns are stored as structured JSON and readable Markdown files on your computer. `state.json` is the source of truth for character identity, stats, inventory, realm progress, goals, and plot pillars; the backend regenerates Markdown summaries from it. Before narration, the backend gathers this state, campaign settings, and recent events. Your story files stay on your machine unless you choose to share the story folder. Narrator messages and any premise you submit to the optional brainstorm feature are sent to Groq for a response.
 
 ## Requirements
 
@@ -45,6 +45,6 @@ Open the local address printed by Vite (normally `http://127.0.0.1:5173`). The b
 
 ## Story files
 
-Campaigns are created under `data/stories/`. Each campaign has a template-specific `character_state.md`, `goals.md`, `plot_pillars.md`, `story.md`, `settings.json`, and a `sessions/` directory of timestamped Markdown events. The settings include the selected world template and world power level. Back up or share a campaign by copying its folder. The `data/` directory is excluded from Git to keep personal stories out of source control.
+Campaigns are created under `data/stories/`. Each campaign has `state.json`, generated `character_state.md`, `goals.md`, `plot_pillars.md`, `story.md`, `settings.json`, and a `sessions/` directory of timestamped Markdown events. The setup wizard lets you choose a genre, stat allocation, starting items, realm ladder, highest power level, tone, and play mode. The realm ladder and highest power level are saved per campaign so the narrator respects the world's ceiling. Back up or share a campaign by copying its folder. The `data/` directory is excluded from Git to keep personal stories out of source control.
 
 Use `/roll 1d20` or `/roll 2d6+3` in the chat input to save a dice result into the campaign history.

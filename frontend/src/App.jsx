@@ -74,8 +74,8 @@ export default function App() {
   }
 
   /** Connect the wizard's optional ideas button to the local API service. */
-  async function brainstorm(idea, worldTemplate) {
-    const result = await api.brainstorm(idea, worldTemplate);
+  async function brainstorm(idea, worldSettings) {
+    const result = await api.brainstorm(idea, worldSettings);
     return result.suggestions;
   }
 
@@ -115,7 +115,7 @@ export default function App() {
       {error && <div className="error-banner" role="alert">{error}<button onClick={() => setError("")}>×</button></div>}
       {!story ? <section className="empty-state"><span>✧</span><h1>A world, waiting.</h1><p>Create a story to begin your adventure.</p><button className="primary" onClick={createStory}>Create your first story</button></section> : <>
         <div className="campaign-heading"><div><span className="eyebrow">ACTIVE CAMPAIGN</span><h1>{story.name}</h1></div><span className="campaign-badge">✦ &nbsp;{story.settings.mode.toUpperCase()} MODE</span></div>
-        <div className="workspace"><ChatInterface messages={messages} onSend={sendMessage} onRoll={rollDice} busy={busy} /><aside className="sidebar"><CharacterSheet character={story.character} goals={story.goals} plotPillars={story.plot_pillars} worldTemplate={story.settings.world_template} /><SettingsPanel settings={story.settings} onChange={changeSettings} disabled={busy} /><p className="privacy-note">Your story data stays on this machine unless you choose to share its folder. Narrator messages and brainstorm ideas are sent to Groq.</p></aside></div>
+        <div className="workspace"><ChatInterface messages={messages} onSend={sendMessage} onRoll={rollDice} busy={busy} /><aside className="sidebar"><CharacterSheet state={story.state} goals={story.goals} plotPillars={story.plot_pillars} worldTemplate={story.settings.world_template} /><SettingsPanel settings={story.settings} onChange={changeSettings} disabled={busy} /><p className="privacy-note">Your story data stays on this machine unless you choose to share its folder. Narrator messages and brainstorm ideas are sent to Groq.</p></aside></div>
       </>}
       {initializerOpen && <StoryInitializer onCancel={() => setInitializerOpen(false)} onCreate={submitStoryInitialization} onBrainstorm={brainstorm} busy={creating} externalError={error} />}
       <footer className="footer"><span>TEXT RPG AI</span><span>✦ &nbsp; YOUR STORY, YOURS TO KEEP</span></footer>

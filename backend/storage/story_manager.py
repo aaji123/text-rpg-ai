@@ -6,35 +6,45 @@ from pathlib import Path
 from typing import Any
 
 from backend.storage.markdown_handler import MarkdownHandler
+from backend.storage.state_store import StateStore
 
 
-DEFAULT_SETTINGS: dict[str, str] = {
+STAT_POINT_BUDGET = 72
+MIN_STAT_VALUE = 3
+MAX_STAT_VALUE = 18
+DEFAULT_SETTINGS: dict[str, Any] = {
     "difficulty": "Moderate",
     "mode": "Hybrid",
-    "tone": "Adventurous",
+    "tone": "Heroic",
     "world_template": "Fantasy",
     "world_power_level": "Medium",
+    "highest_power_level": "Mythic",
+    "realm_hierarchy": ["Commoner", "Novice", "Adept", "Expert", "Master", "Legendary", "Mythic"],
 }
 WORLD_TEMPLATES: dict[str, dict[str, Any]] = {
     "Xianxia": {
         "stats": ["Strength", "Agility", "Constitution", "Comprehension", "Perception", "Willpower"],
         "resource": "Qi",
         "extra": "Cultivation Stage",
+        "realms": ["Body Tempering", "Qi Condensation", "Foundation Establishment", "Core Formation", "Nascent Soul", "Spirit Severing", "Dao Integration", "Tribulation Transcendence", "Immortal"],
     },
     "Fantasy": {
         "stats": ["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"],
         "resource": "Mana",
         "extra": "Class",
+        "realms": ["Commoner", "Novice", "Adept", "Expert", "Master", "Legendary", "Mythic"],
     },
     "Sci-Fi": {
         "stats": ["Strength", "Agility", "Endurance", "Intelligence", "Perception", "Technical Skill"],
         "resource": "Energy",
         "extra": "Augmentations",
+        "realms": ["Tier 0: Civilian", "Tier 1: Enhanced", "Tier 2: Operative", "Tier 3: Elite", "Tier 4: Apex", "Tier 5: Posthuman"],
     },
     "Cyberpunk": {
         "stats": ["Body", "Reflexes", "Technical Ability", "Intelligence", "Cool", "Empathy"],
         "resource": "Stamina",
         "extra": "Cyberware",
+        "realms": ["Civilian", "Streetwise", "Professional", "Elite", "Corporate Legend", "Night City Myth"],
     },
 }
 DEFAULT_GOALS = "# Active Goals\n\n- (No active goals yet)\n"
@@ -48,6 +58,7 @@ class StoryManager:
 
         self.stories_dir = stories_dir.resolve()
         self.markdown = markdown or MarkdownHandler()
+        self.state_store = StateStore()
         self.stories_dir.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
@@ -87,8 +98,10 @@ class StoryManager:
         world_template: str = "Fantasy",
         setting_description: str = "",
         plot_pillars: list[str] | None = None,
+        character: dict[str, Any] | None = None,
+        world_settings: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Create a complete campaign from wizard inputs before play begins."""
+        """Create a campaign with validated JSON state and generated Markdown."""
 
         slug = self._slug_for_name(name)
         if world_template not in WORLD_TEMPLATES:
@@ -98,6 +111,8 @@ class StoryManager:
         pillars = [pillar.strip() for pillar in (plot_pillars or []) if pillar.strip()]
         if len(pillars) > 12 or any(len(pillar) > 160 for pillar in pillars):
             raise ValueError("Add up to 12 plot pillars, each 160 characters or fewer.")
+        settings = self._validate_world_settings(world_template, world_settings or {})
+        state = self._new_character_state(world_template, character or {}, settings["realm_hierarchy"])
         story_id = slug
         suffix = 2
         while (self.stories_dir / story_id).exists():
@@ -106,35 +121,287 @@ class StoryManager:
         root = self.story_path(story_id)
         root.mkdir()
         (root / "sessions").mkdir()
-        self.markdown.write_text(root / "character_state.md", self._character_template(world_template))
-        self.markdown.write_text(root / "goals.md", DEFAULT_GOALS)
-        self.markdown.write_text(root / "plot_pillars.md", self._plot_pillars_markdown(pillars))
         setting_text = setting_description.strip() or "A new adventure begins."
-        self.markdown.write_text(root / "story.md", f"# {name.strip()}\n\n## Setting\n\n{setting_text}\n")
-        story_settings = {**DEFAULT_SETTINGS, "world_template": world_template}
+        state.update({
+            "campaign_name": name.strip(),
+            "setting_description": setting_text,
+            "plot_pillars": pillars,
+            "active_goals": [],
+        })
+        self.state_store.write(root, state, WORLD_TEMPLATES[world_template]["resource"])
+        story_settings = {**settings, "world_template": world_template}
         self.write_settings(story_id, story_settings)
         return {"id": story_id, "name": name.strip()}
 
     @staticmethod
-    def _character_template(world_template: str) -> str:
-        """Generate a resource and stat sheet that fits the chosen setting genre."""
+    def _validate_world_settings(world_template: str, supplied: dict[str, Any]) -> dict[str, Any]:
+        """Validate editable realm progression and its declared world ceiling."""
 
-        template = WORLD_TEMPLATES[world_template]
-        stat_lines = "\n".join(f"- {stat}: 10" for stat in template["stats"])
-        resource = template["resource"]
-        extra = template["extra"]
-        return (
-            "# Character Sheet\n\n## Identity\n- Name: Adventurer\n- Level: 1\n"
-            f"- {extra}: Unset\n\n## Stats\n{stat_lines}\n\n"
-            f"## {resource}\n- Current: 0\n- Maximum: 0\n\n## Inventory\n- (empty)\n"
-        )
+        defaults = list(WORLD_TEMPLATES[world_template]["realms"])
+        realms = supplied.get("realm_hierarchy", defaults)
+        if not isinstance(realms, list):
+            raise ValueError("Realm hierarchy must be a list of names.")
+        realms = [str(realm).strip() for realm in realms if str(realm).strip()]
+        if not 2 <= len(realms) <= 20 or any(len(realm) > 60 for realm in realms):
+            raise ValueError("Realm hierarchy must contain 2 to 20 names, each 60 characters or fewer.")
+        if len({realm.casefold() for realm in realms}) != len(realms):
+            raise ValueError("Realm names must be unique.")
+        highest = str(supplied.get("highest_power_level", realms[-1])).strip()
+        if highest not in realms:
+            raise ValueError("Highest power level must match a realm in the hierarchy.")
+        power_level = str(supplied.get("world_power_level", "Medium"))
+        if power_level not in {"Low", "Medium", "High/Cosmic"}:
+            raise ValueError("World power level must be Low, Medium, or High/Cosmic.")
+        mode = str(supplied.get("mode", "Hybrid"))
+        if mode not in {"Dice-heavy", "Narrative-heavy", "Hybrid"}:
+            raise ValueError("Play mode must be Dice-heavy, Narrative-heavy, or Hybrid.")
+        tone = str(supplied.get("tone", "Heroic"))
+        if tone not in {"Grim", "Heroic", "Mystery"}:
+            raise ValueError("Tone must be Grim, Heroic, or Mystery.")
+        return {
+            "difficulty": "Moderate",
+            "mode": mode,
+            "tone": tone,
+            "world_power_level": power_level,
+            "highest_power_level": highest,
+            "realm_hierarchy": realms,
+            "world_template": world_template,
+        }
 
     @staticmethod
-    def _plot_pillars_markdown(pillars: list[str]) -> str:
-        """Keep player-chosen narrative anchors separate from immediate goals."""
+    def _new_character_state(
+        world_template: str,
+        character: dict[str, Any],
+        realms: list[str],
+    ) -> dict[str, Any]:
+        """Create schema-versioned state and enforce valid stats and item metadata."""
 
-        items = "\n".join(f"- {pillar}" for pillar in pillars) or "- (No plot pillars chosen yet)"
-        return f"# Plot Pillars\n\n{items}\n"
+        template = WORLD_TEMPLATES[world_template]
+        identity = character.get("identity", {})
+        if not isinstance(identity, dict):
+            raise ValueError("Character identity must be an object.")
+        name = str(identity.get("name", "Adventurer")).strip()
+        background = str(identity.get("background", "Unchosen")).strip()
+        age = identity.get("age", 18)
+        if not name or len(name) > 80 or not background or len(background) > 1000:
+            raise ValueError("Character name or background is empty or too long.")
+        if isinstance(age, bool) or not isinstance(age, int) or not 1 <= age <= 999:
+            raise ValueError("Character age must be a whole number from 1 to 999.")
+        raw_stats = character.get("stats", {})
+        if not isinstance(raw_stats, dict):
+            raise ValueError("Character stats must be an object.")
+        stat_labels = template["stats"]
+        unknown_stats = set(raw_stats) - set(stat_labels)
+        if unknown_stats:
+            raise ValueError("Character stats do not match the selected world template.")
+        stats = {label: raw_stats.get(label, 10) for label in stat_labels}
+        if any(isinstance(value, bool) or not isinstance(value, int) or not MIN_STAT_VALUE <= value <= MAX_STAT_VALUE for value in stats.values()):
+            raise ValueError(f"Every stat must be a whole number from {MIN_STAT_VALUE} to {MAX_STAT_VALUE}.")
+        if sum(stats.values()) > STAT_POINT_BUDGET:
+            raise ValueError(f"Character stats may use at most {STAT_POINT_BUDGET} points total.")
+        inventory = StoryManager._validate_inventory(character.get("inventory", []))
+        current_realm = realms[0]
+        return {
+            "schema_version": 1,
+            "campaign_name": "Untitled Story",
+            "setting_description": "A new adventure begins.",
+            "plot_pillars": [],
+            "active_goals": [],
+            "world_template": world_template,
+            "identity": {"name": name, "age": age, "background": background},
+            "stats": stats,
+            "resource_label": template["resource"],
+            "resource": {"current": 0, "maximum": 0},
+            "realm_progress": {"current": current_realm, "rank_index": 0},
+            "inventory": inventory,
+        }
+
+    @staticmethod
+    def _validate_inventory(items: Any) -> list[dict[str, Any]]:
+        """Normalize each starting item so its usage metadata has predictable fields."""
+
+        if not isinstance(items, list) or len(items) > 50:
+            raise ValueError("Inventory must be a list of no more than 50 items.")
+        normalized: list[dict[str, Any]] = []
+        for index, item in enumerate(items, start=1):
+            if not isinstance(item, dict):
+                raise ValueError("Each inventory item must be an object.")
+            name = str(item.get("name", "")).strip()
+            kind = str(item.get("kind", "Permanent"))
+            if not name or len(name) > 80 or kind not in {"Consumable", "Durable", "Permanent"}:
+                raise ValueError("Each item needs a name and a supported item type.")
+            tags = item.get("tags", [kind])
+            if not isinstance(tags, list) or len(tags) > 8 or any(not isinstance(tag, str) or len(tag) > 40 for tag in tags):
+                raise ValueError("Item tags must be a list of up to eight short labels.")
+            normalized_item: dict[str, Any] = {
+                "id": str(item.get("id", f"item-{index}")),
+                "name": name,
+                "kind": kind,
+                "tags": tags,
+                "description": str(item.get("description", ""))[:300],
+            }
+            if kind == "Consumable":
+                quantity = item.get("quantity", 1)
+                if isinstance(quantity, bool) or not isinstance(quantity, int) or not 1 <= quantity <= 999:
+                    raise ValueError("Consumable quantity must be from 1 to 999.")
+                normalized_item["quantity"] = quantity
+            elif kind == "Durable":
+                maximum = item.get("max_durability", 10)
+                durability = item.get("durability", maximum)
+                if any(isinstance(value, bool) or not isinstance(value, int) for value in (maximum, durability)) or not 1 <= maximum <= 1000 or not 0 <= durability <= maximum:
+                    raise ValueError("Durability must be between zero and a maximum from 1 to 1,000.")
+                normalized_item["durability"] = durability
+                normalized_item["max_durability"] = maximum
+            normalized.append(normalized_item)
+        return normalized
+
+    def load_state(self, story_id: str) -> dict[str, Any]:
+        """Read structured state, migrate a legacy sheet once, and refresh its view."""
+
+        root = self.story_path(story_id)
+        if not root.is_dir():
+            raise FileNotFoundError("Story not found.")
+        settings = self.read_settings(story_id)
+        state = self.state_store.read(root / "state.json")
+        if state is None:
+            state = self._migrate_legacy_state(root, settings)
+            self.state_store.write(root, state, WORLD_TEMPLATES[state["world_template"]]["resource"])
+        else:
+            state = self._normalize_existing_state(state, settings)
+            if state != self.state_store.read(root / "state.json"):
+                self.state_store.write(root, state, WORLD_TEMPLATES[state["world_template"]]["resource"])
+            else:
+                self.state_store.sync_summary(root, state, WORLD_TEMPLATES[state["world_template"]]["resource"])
+        return state
+
+    def save_state(self, story_id: str, state: dict[str, Any]) -> None:
+        """Commit a state mutation and regenerate its Markdown summary afterward."""
+
+        root = self.story_path(story_id)
+        if not root.is_dir():
+            raise FileNotFoundError("Story not found.")
+        world_template = state["world_template"]
+        self.state_store.write(root, state, WORLD_TEMPLATES[world_template]["resource"])
+
+    def _normalize_existing_state(self, state: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
+        """Apply schema defaults and reject invalid structured data without parsing Markdown."""
+
+        world_template = str(state.get("world_template", settings["world_template"]))
+        if world_template not in WORLD_TEMPLATES:
+            world_template = settings["world_template"]
+        candidate = self._new_character_state(
+            world_template,
+            {"identity": state.get("identity", {}), "stats": state.get("stats", {}), "inventory": state.get("inventory", [])},
+            settings["realm_hierarchy"],
+        )
+        candidate["campaign_name"] = str(state.get("campaign_name", "Untitled Story"))[:60]
+        candidate["setting_description"] = str(state.get("setting_description", "A new adventure begins."))[:2000]
+        candidate["plot_pillars"] = self._normalize_string_list(state.get("plot_pillars", []), 12, 160)
+        candidate["active_goals"] = self._normalize_string_list(state.get("active_goals", []), 40, 160)
+        resource = state.get("resource", {})
+        if isinstance(resource, dict):
+            maximum = resource.get("maximum", 0)
+            current = resource.get("current", 0)
+            if all(isinstance(value, int) and not isinstance(value, bool) for value in (current, maximum)) and 0 <= current <= maximum:
+                candidate["resource"] = {"current": current, "maximum": maximum}
+        realm = state.get("realm_progress", {})
+        if isinstance(realm, dict):
+            current_realm = str(realm.get("current", candidate["realm_progress"]["current"]))
+            hierarchy = settings["realm_hierarchy"]
+            if current_realm in hierarchy:
+                candidate["realm_progress"] = {
+                    "current": current_realm,
+                    "rank_index": hierarchy.index(current_realm),
+                }
+        candidate["schema_version"] = 1
+        return candidate
+
+    @staticmethod
+    def _normalize_string_list(values: Any, maximum_items: int, maximum_length: int) -> list[str]:
+        """Bound campaign lists loaded from hand-edited JSON before rendering them."""
+
+        if not isinstance(values, list):
+            return []
+        return [str(value).strip()[:maximum_length] for value in values[:maximum_items] if str(value).strip()]
+
+    def _migrate_legacy_state(self, root: Path, settings: dict[str, Any]) -> dict[str, Any]:
+        """Convert an older Markdown-only character sheet into structured JSON once."""
+
+        template = settings["world_template"]
+        legacy_path = root / "character_state.md"
+        if not legacy_path.exists():
+            legacy_path = root / "character.md"
+        markdown = self.markdown.read_text(legacy_path)
+        identity: dict[str, Any] = {}
+        for key in ("name", "age", "background"):
+            match = re.search(rf"^-\s*{re.escape(key)}:\s*(.+)$", markdown, re.IGNORECASE | re.MULTILINE)
+            if match:
+                identity[key] = int(match.group(1)) if key == "age" and match.group(1).isdigit() else match.group(1).strip()
+        stat_labels = WORLD_TEMPLATES[template]["stats"]
+        stats: dict[str, int] = {}
+        for label in stat_labels:
+            match = re.search(rf"^-\s*{re.escape(label)}:\s*(\d+)\s*$", markdown, re.IGNORECASE | re.MULTILINE)
+            if match:
+                stats[label] = max(MIN_STAT_VALUE, min(MAX_STAT_VALUE, int(match.group(1))))
+        inventory_section = re.search(r"^## Inventory\s*\n([\s\S]*?)(?=^## |\Z)", markdown, re.MULTILINE | re.IGNORECASE)
+        items: list[dict[str, Any]] = []
+        if inventory_section:
+            for line in inventory_section.group(1).splitlines():
+                item_name = re.sub(r"^-\s*", "", line).strip()
+                if item_name and item_name.casefold() != "(empty)":
+                    items.append({"name": item_name, "kind": "Permanent", "tags": ["Permanent"]})
+        state = self._new_character_state(
+            template,
+            {"identity": identity, "stats": stats, "inventory": items},
+            settings["realm_hierarchy"],
+        )
+        story_text = self.markdown.read_text(root / "story.md", "# Untitled Story\n")
+        state["campaign_name"] = next((line[2:].strip() for line in story_text.splitlines() if line.startswith("# ")), "Untitled Story")
+        setting_match = re.search(r"^## Setting\s*\n+([\s\S]*?)(?=\n## |\Z)", story_text, re.MULTILINE)
+        state["setting_description"] = setting_match.group(1).strip() if setting_match else "A new adventure begins."
+        state["plot_pillars"] = self._legacy_list(root / "plot_pillars.md", "Plot Pillars")
+        state["active_goals"] = self._legacy_list(root / "goals.md", "Active Goals")
+        return state
+
+    def _legacy_list(self, path: Path, heading: str) -> list[str]:
+        """Recover a legacy Markdown list once before JSON becomes authoritative."""
+
+        contents = self.markdown.read_text(path)
+        section = re.search(rf"^#\s*{re.escape(heading)}\s*\n([\s\S]*)", contents, re.MULTILINE | re.IGNORECASE)
+        if not section:
+            return []
+        return [line[2:].strip() for line in section.group(1).splitlines() if line.startswith("- ") and not line.startswith("- (No ") and line[2:].strip()]
+
+    def update_item_usage(self, story_id: str, message: str) -> list[str]:
+        """Apply explicit consumable use or durable damage before narrator context loads."""
+
+        state = self.load_state(story_id)
+        changes: list[str] = []
+        consumable_actions = r"use|uses|using|used|consume|consumes|consuming|consumed|drink|drinks|drinking|drank|eat|eats|eating|ate|take|takes|taking|took|activate|activates|activated"
+        damage_actions = r"damage|damages|damaged|wear|wears|wore|worn|break|breaks|broke|broken|strike|strikes|struck|hit|hits|parry|parries"
+        for item in state["inventory"]:
+            name_pattern = re.escape(item["name"])
+            mention = re.search(rf"\b{name_pattern}(?:s)?\b", message, re.IGNORECASE)
+            if not mention:
+                continue
+            nearby = message[max(0, mention.start() - 100):min(len(message), mention.end() + 100)]
+            if re.search(r"\b(?:don't|do not|didn't|never|not)\b.{0,30}\b(?:use|consume|drink|eat|take|damage|break)\b", nearby, re.IGNORECASE):
+                continue
+            if item["kind"] == "Consumable" and re.search(rf"\b(?:{consumable_actions})\b", nearby, re.IGNORECASE):
+                quantity_match = re.search(rf"\b(?:use|consume|drink|eat|take|activate)\s+(\d+)\s+(?:of\s+)?(?:the\s+)?{name_pattern}", message, re.IGNORECASE)
+                requested = int(quantity_match.group(1)) if quantity_match else 1
+                used = min(requested, item["quantity"])
+                if used:
+                    item["quantity"] -= used
+                    changes.append(f"Used {used} {item['name']}; {item['quantity']} remaining.")
+            elif item["kind"] == "Durable" and re.search(rf"\b(?:{damage_actions})\b", nearby, re.IGNORECASE):
+                if item["durability"] > 0:
+                    item["durability"] -= 1
+                    condition = "broken" if item["durability"] == 0 else f"durability {item['durability']}/{item['max_durability']}"
+                    changes.append(f"{item['name']} was damaged; {condition}.")
+        if changes:
+            self.save_state(story_id, state)
+        return changes
 
     def list_stories(self) -> list[dict[str, str]]:
         """Expose story ids and friendly names without returning local paths."""
@@ -143,8 +410,13 @@ class StoryManager:
         for directory in sorted(self.stories_dir.iterdir(), key=lambda item: item.name):
             if not directory.is_dir() or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", directory.name):
                 continue
-            title = self.markdown.read_text(directory / "story.md", f"# {directory.name}\n")
-            first_line = next((line[2:].strip() for line in title.splitlines() if line.startswith("# ")), directory.name)
+            try:
+                state = self.state_store.read(directory / "state.json")
+                if state is None:
+                    state = self.load_state(directory.name)
+                first_line = str(state.get("campaign_name", directory.name))
+            except ValueError:
+                first_line = directory.name
             stories.append({"id": directory.name, "name": first_line})
         return stories
 
@@ -154,29 +426,21 @@ class StoryManager:
         root = self.story_path(story_id)
         if not root.is_dir():
             raise FileNotFoundError("Story not found.")
-        character_path = root / "character_state.md"
-        legacy_character_path = root / "character.md"
-        default_character = self._character_template(self.read_settings(story_id)["world_template"])
-        character = self.markdown.read_text(character_path, self.markdown.read_text(legacy_character_path, default_character))
+        state = self.load_state(story_id)
+        character = self.markdown.read_text(root / "character_state.md")
         return {
             "id": story_id,
-            "name": next((line[2:].strip() for line in self.markdown.read_text(root / "story.md").splitlines() if line.startswith("# ")), story_id),
+            "name": state["campaign_name"],
             "character": character,
+            "state": state,
             "goals": self.markdown.read_text(root / "goals.md", DEFAULT_GOALS),
             "plot_pillars": self.markdown.read_text(root / "plot_pillars.md", "# Plot Pillars\n\n- (No plot pillars chosen yet)\n"),
-            "setting_description": self._setting_from_markdown(root / "story.md"),
+            "setting_description": state["setting_description"],
             "settings": self.read_settings(story_id),
             "recent_history": self.recent_session_text(story_id),
         }
 
-    def _setting_from_markdown(self, path: Path) -> str:
-        """Return the saved starting premise without leaking a file path."""
-
-        story_text = self.markdown.read_text(path)
-        match = re.search(r"^## Setting\s*\n+([\s\S]*?)(?=\n## |\Z)", story_text, re.MULTILINE)
-        return match.group(1).strip() if match else "A new adventure begins."
-
-    def read_settings(self, story_id: str) -> dict[str, str]:
+    def read_settings(self, story_id: str) -> dict[str, Any]:
         """Load settings with safe defaults if a file is missing or malformed."""
 
         path = self.story_path(story_id) / "settings.json"
@@ -186,23 +450,45 @@ class StoryManager:
             stored = {}
         if not isinstance(stored, dict):
             stored = {}
-        settings = {**DEFAULT_SETTINGS, **{key: str(value) for key, value in stored.items() if key in DEFAULT_SETTINGS}}
+        settings = {**DEFAULT_SETTINGS, **{key: value for key, value in stored.items() if key in DEFAULT_SETTINGS}}
         if settings["world_template"] not in WORLD_TEMPLATES:
             settings["world_template"] = DEFAULT_SETTINGS["world_template"]
+        if not isinstance(stored.get("realm_hierarchy"), list):
+            settings["realm_hierarchy"] = list(WORLD_TEMPLATES[settings["world_template"]]["realms"])
+        if settings.get("highest_power_level") not in settings["realm_hierarchy"]:
+            settings["highest_power_level"] = settings["realm_hierarchy"][-1]
         if settings["world_power_level"] not in {"Low", "Medium", "High/Cosmic"}:
             settings["world_power_level"] = DEFAULT_SETTINGS["world_power_level"]
+        if settings["mode"] == "Dice":
+            settings["mode"] = "Dice-heavy"
+        elif settings["mode"] == "Narrative":
+            settings["mode"] = "Narrative-heavy"
+        if settings["tone"] not in {"Grim", "Heroic", "Mystery"}:
+            settings["tone"] = "Heroic"
+        if settings.get("difficulty") not in {"Easy", "Moderate", "Hard"}:
+            settings["difficulty"] = "Moderate"
+        try:
+            validated = self._validate_world_settings(settings["world_template"], settings)
+            validated["difficulty"] = settings["difficulty"]
+            settings.update(validated)
+        except ValueError:
+            fallback = self._validate_world_settings(settings["world_template"], {})
+            fallback["difficulty"] = settings["difficulty"]
+            settings.update(fallback)
         return settings
 
-    def write_settings(self, story_id: str, settings: dict[str, str]) -> dict[str, str]:
+    def write_settings(self, story_id: str, settings: dict[str, Any]) -> dict[str, Any]:
         """Persist only supported preference fields to keep config predictable."""
 
         allowed = {key: settings[key] for key in DEFAULT_SETTINGS if key in settings}
         current = self.read_settings(story_id) if self.story_path(story_id).is_dir() else DEFAULT_SETTINGS.copy()
         merged = {**current, **allowed}
+        normalized = self._validate_world_settings(merged["world_template"], merged)
+        normalized["difficulty"] = merged.get("difficulty", "Moderate")
         path = self.story_path(story_id) / "settings.json"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
-        return merged
+        path.write_text(json.dumps(normalized, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        return normalized
 
     def recent_session_text(self, story_id: str, limit: int = 12) -> str:
         """Read the newest events in chronological order for bounded AI context."""

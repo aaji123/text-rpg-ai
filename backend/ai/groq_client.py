@@ -37,7 +37,7 @@ class GroqNarrator:
                 response_parts.append(content)
         return "".join(response_parts) or "The narrator has no response."
 
-    async def brainstorm(self, idea: str, world_template: str) -> str:
+    async def brainstorm(self, system_prompt: str, idea: str) -> str:
         """Turn a vague campaign premise into three selectable story anchors."""
 
         stream = await self.client.chat.completions.create(
@@ -45,16 +45,11 @@ class GroqNarrator:
             messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "You help a player brainstorm RPG plot pillars. Return only a JSON array "
-                        "of exactly three concise, distinct strings. Each is an optional long-term "
-                        "goal or event, specific enough to guide play but open-ended enough for "
-                        "player agency. Do not include markdown or extra keys."
-                    ),
+                    "content": system_prompt,
                 },
                 {
                     "role": "user",
-                    "content": f"World template: {world_template}\nVague idea: {idea}",
+                    "content": idea,
                 },
             ],
             temperature=0.6,

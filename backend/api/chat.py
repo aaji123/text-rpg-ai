@@ -28,6 +28,9 @@ async def send_message(story_id: str, request: ChatRequest) -> dict[str, str]:
 
     stories = get_story_manager()
     try:
+        item_changes = stories.update_item_usage(story_id, request.message.strip())
+        if item_changes:
+            stories.append_event(story_id, "Automatic item use", "\n".join(f"- {change}" for change in item_changes))
         context = get_game_state().build_context(story_id)
         settings = stories.read_settings(story_id)
     except ValueError as error:
