@@ -72,7 +72,11 @@ export default function App() {
       const created = await api.createStory(storyDraft);
       setStories((current) => [...current, created]);
       setInitializerOpen(false);
+      let openingError = "";
+      try { await api.beginStory(created.id); }
+      catch (reason) { openingError = `Campaign created, but the opening scene could not be generated: ${reason.message}`; }
       await selectStory(created.id);
+      if (openingError) setError(openingError);
     } catch (reason) { setError(reason.message); }
     finally { setCreating(false); }
   }

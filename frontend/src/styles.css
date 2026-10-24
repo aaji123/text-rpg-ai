@@ -70,4 +70,7 @@
 :root[data-theme="light"] *::-webkit-scrollbar-thumb{border-color:#eeece4;background:#b2ad9c}
 :root[data-theme="light"] *::-webkit-scrollbar-thumb:hover{background:#8e825f}
 
+/* Portal tooltips use viewport coordinates, so wizard scroll containers cannot clip them. */
+.help-tooltip{position:fixed;z-index:10000;left:0;top:0;bottom:auto;width:min(280px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow-y:auto;white-space:normal;overflow-wrap:anywhere;opacity:1;visibility:visible;transform:none;pointer-events:none}
+
 @media(max-width:620px){.home-hub{padding:34px 0}.home-hero{padding:28px 22px}.library-heading{margin-top:34px}.topbar-tools{gap:10px}.theme-toggle{padding:8px}.theme-toggle span{display:none}}

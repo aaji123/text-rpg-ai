@@ -69,13 +69,22 @@ class GroqNarrator:
     async def generate_example(self, system_prompt: str) -> str:
         """Return one short setup example without involving the narrator transcript."""
 
-        completion = await self.client.chat.completions.create(
+        stream = await self.client.chat.completions.create(
             model=self.model,
-            messages=[{"role": "system", "content": system_prompt}],
-            temperature=0.7,
-            max_completion_tokens=256,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": "Generate one short example for the field described above."},
+            ],
+            temperature=0.6,
+            max_completion_tokens=2048,
             top_p=0.95,
             reasoning_effort="default",
-            stream=False,
+            stream=True,
+            stop=None,
         )
-        return completion.choices[0].message.content or ""
+        response_parts: list[str] = []
+        async for chunk in stream:
+            content = chunk.choices[0].delta.content
+            if content:
+                response_parts.append(content)
+        return "".join(response_parts).strip()

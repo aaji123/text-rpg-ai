@@ -117,3 +117,36 @@ Realm hierarchy: {realms}
 House rules: {world_settings.get('house_rules', '')}
 Atmosphere: {world_settings.get('atmosphere', '')}
 """
+
+
+def build_initial_scene_prompt(settings: dict[str, Any], game_context: str) -> str:
+    """Shape the first narrator response around the player's chosen world and hooks."""
+
+    return f"""Create the opening scene for a newly created solo role-playing campaign.
+Use vivid but concise sensory details: sights, sounds, and smells. Match the selected
+tone and atmosphere, and use the supplied starting setting as the scene's location
+and time. Add 2 or 3 subtle, optional points of interest informed by the character's
+background and plot pillars. Do not force a goal, resolve a plot pillar, change
+character state, invent inventory, or exceed the world's highest power level.
+End with one open question inviting the player to choose their first action.
+
+Return only these sections, with the headings exactly as shown:
+SCENE:
+(one or two vivid paragraphs)
+HOOKS:
+- (optional point of interest)
+- (optional point of interest)
+- (optional point of interest)
+CALL TO ACTION:
+(one direct open-ended question)
+
+Tone: {settings.get('tone', 'Heroic')}
+Atmosphere: {settings.get('atmosphere') or 'Use the tone and setting naturally.'}
+Play mode: {settings.get('mode', 'Hybrid')}
+Genre: {settings.get('world_template', 'Fantasy')}
+Starting plane: {settings.get('starting_plane', 'Mortal Plane')}
+Highest power level: {settings.get('highest_power_level', 'unspecified')}
+
+CAMPAIGN CONTEXT:
+{game_context}
+"""

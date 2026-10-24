@@ -17,6 +17,7 @@ export const api = {
   brainstorm: (idea, worldSettings) => request("/stories/brainstorm", { method: "POST", body: JSON.stringify({ idea, ...worldSettings }) }),
   generateExample: (field, worldSettings) => request("/stories/example", { method: "POST", body: JSON.stringify({ field, ...worldSettings }) }),
   loadStory: (id) => request(`/stories/${encodeURIComponent(id)}`),
+  beginStory: (id) => request(`/stories/${encodeURIComponent(id)}/begin`, { method: "POST" }),
   sendMessage: (id, message) => request(`/stories/${encodeURIComponent(id)}/chat`, { method: "POST", body: JSON.stringify({ message }) }),
   rollDice: (id, notation) => request(`/stories/${encodeURIComponent(id)}/dice`, { method: "POST", body: JSON.stringify({ notation }) }),
   saveSettings: (id, settings) => request(`/stories/${encodeURIComponent(id)}/settings`, { method: "PUT", body: JSON.stringify(settings) }),
