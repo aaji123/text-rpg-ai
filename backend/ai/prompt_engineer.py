@@ -1,5 +1,6 @@
 """Build concise narrator instructions from campaign state and preferences."""
 
+import json
 from typing import Any
 
 
@@ -16,7 +17,8 @@ unless the user named it. Do not invent changes to stats, inventory, goals, or p
 events unless the player explicitly changes them or a game mechanic justifies change.
 
 Narrative formatting and immersion:
-- The narrative value must be plain, immersive prose, usually one or two paragraphs.
+- Write short, readable sentences with natural paragraph breaks. Usually use two
+  short paragraphs separated by a blank line; avoid dense blocks.
 - No Markdown, bold, headings, labels, bullets, numbered lists, or game-like status
   summaries in narrative. Do not list stats, age, realm, or inventory.
 - Integrate ability, realm, and background implicitly through plausible perceptions,
@@ -24,13 +26,28 @@ Narrative formatting and immersion:
 - Embed hooks in the environment for discovery; do not enumerate them in narrative.
 - Match the selected tone and atmosphere with concrete sensory detail. End at a
   natural pause or stimulus that invites action, without a choice menu in the prose.
+- Occasionally add a brief ambient sound cue in parentheses. Show NPC moods through
+  body language or tone rather than naming emotions. Mention low resources or damaged
+  gear organically when relevant, without turning the scene into a status report.
+- Use the saved in-world day and clock; advance time only as actions justify it.
+  Mention time passing when useful, respect day/night and planned events, and update
+  elapsed_minutes conservatively. Keep the saved weather unless fiction supports a
+  change. Let weather reflect tone and events without treating it as a forced omen.
+- Track major faction reputations as Allied, Friendly, Neutral, Wary, or Hostile.
+  Update only when a confirmed event earns a change, and reflect known standing in
+  relevant NPC reactions. If a background-related scent or object appears, a single
+  brief sensory flashback is appropriate; do not invent unsupported memories.
 - Return two or three optional actions or observations separately as structured data.
 
 Return exactly one JSON object with keys narrative, suggested_actions, state_update,
 and session_summary. No Markdown fences or surrounding text. narrative is plain prose;
 suggested_actions is an array of two or three short optional ideas. state_update is
-{{"relationships":[],"lore_bank":[],"techniques":[]}} unless confirmed changes
-occur. session_summary is an empty string unless specifically requested below.
+{{"relationships":[],"lore_bank":[],"techniques":[],"elapsed_minutes":0,
+"weather":"current weather","faction_reputations":[]}} unless confirmed changes
+occur. elapsed_minutes is 0–240. Include weather only when it actually changes; never
+use a placeholder. Reputation records use {{"name":"faction","standing":"...",
+"notes":"..."}} and include only confirmed changes. session_summary is an empty
+string unless specifically requested below.
 
 Difficulty: {settings['difficulty']}
 Play mode: {settings['mode']}
@@ -171,4 +188,46 @@ Return only the recap paragraph as out-of-character reference text.
 
 RECENT CAMPAIGN CONTEXT:
 {game_context}
+"""
+
+
+def build_help_prompt() -> str:
+    """Ask the narrator to explain the supported slash commands without roleplay."""
+
+    return """You are the app's command help assistant, not the story narrator.
+Explain these commands in a clear, concise, easy-to-scan plain-text list. Include every
+command and its function, with one example for /roll. Do not add commands that are not
+listed here and do not mention hidden implementation details:
+/help — show this command guide
+/recap — summarize recent story events
+/ooc [question] — ask out-of-character questions about rules or world details
+/roll [notation] — roll dice, optionally with a target such as /roll 1d20 vs 15
+/stats — display character stats, current realm, and resource levels (/status also works)
+/inventory — display carried items and their quantity, durability, tags, and metadata
+Return plain text only, with one command per line and no story prose.
+"""
+
+
+def build_command_prompt(command: str, state: dict[str, Any], settings: dict[str, Any], result_data: dict[str, Any] | None = None) -> str:
+    """Give command-specific output rules and exact saved values to the narrator."""
+
+    command_rules = {
+        "stats": "Show identity, realm, resource, and every stat exactly as supplied. Use a short title and one value per line. Do not add or infer values.",
+        "inventory": "Show each saved item on its own line with its exact kind, quantity or durability, tags, and description. If empty, say so plainly. Do not invent items.",
+        "roll": "Report the supplied roll exactly, then briefly interpret success or failure if a target exists. Never change or reroll any number. A failure needs one proportionate complication.",
+    }
+    if command not in command_rules:
+        raise ValueError("Unsupported state command.")
+    return f"""You are formatting a {command} command for a solo RPG.
+Follow these command-specific instructions: {command_rules[command]}
+Use clean plain text, short lines, and blank lines between small sections. Avoid bold,
+bullet symbols, numbered lists, and dense paragraphs. Do not change game state or
+create story facts. Use only the authoritative JSON below.
+
+Campaign tone: {settings.get('tone', 'Heroic')}
+Campaign mode: {settings.get('mode', 'Hybrid')}
+Authoritative state.json:
+{json.dumps(state, ensure_ascii=False, indent=2)}
+Exact command result data:
+{json.dumps(result_data or {}, ensure_ascii=False, indent=2)}
 """

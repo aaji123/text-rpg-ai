@@ -108,6 +108,15 @@ class StateStore:
                 lines.append(label)
         else:
             lines.append("- (empty)")
+        clock = state.get("world_clock", {})
+        if isinstance(clock, dict):
+            lines.extend(["", "## World", f"- Day {clock.get('day', 1)}, {clock.get('hour', 8):02d}:{clock.get('minute', 0):02d}", f"- Time played: {clock.get('time_played_minutes', 0)} in-world minutes", f"- Weather: {StateStore._clean(state.get('weather', 'Clear'))}"])
+        lines.extend(["", "## Faction Reputation"])
+        factions = state.get("faction_reputations", [])
+        if factions:
+            lines.extend(f"- {StateStore._clean(item.get('name', 'Unknown'))}: {StateStore._clean(item.get('standing', 'Neutral'))}" for item in factions)
+        else:
+            lines.append("- (none recorded)")
         for title, key, display_key in (
             ("Relationships", "relationships", "name"),
             ("Lore Bank", "lore_bank", "fact"),

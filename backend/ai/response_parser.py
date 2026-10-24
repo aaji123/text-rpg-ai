@@ -69,3 +69,9 @@ def _plain_prose(value: str) -> str:
     value = re.sub(r"\*\*(.*?)\*\*|__(.*?)__", lambda match: match.group(1) or match.group(2), value)
     value = re.sub(r"(?<!\*)\*(?!\*)(.*?)\*(?!\*)|(?<!_)_(?!_)(.*?)_(?!_)", lambda match: match.group(1) or match.group(2), value)
     return value.strip()
+
+
+def plain_command_text(value: str) -> str:
+    """Remove Markdown decoration while preserving readable command line breaks."""
+
+    return _plain_prose(value)

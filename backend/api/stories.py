@@ -9,8 +9,11 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from backend.ai.prompt_engineer import build_brainstorm_prompt, build_example_prompt, build_initial_scene_prompt, build_system_prompt
+from backend.ai.groq_client import GroqRequestError
 from backend.ai.response_parser import parse_narrator_response
 from backend.api.dependencies import get_game_state, get_narrator, get_story_manager
+from backend.api.provider_errors import to_http_exception
+from backend.observability import request_id_context
 
 router = APIRouter(prefix="/api/stories", tags=["stories"])
 logger = logging.getLogger(__name__)
@@ -90,9 +93,12 @@ async def brainstorm(request: BrainstormRequest) -> dict[str, list[str]]:
     try:
         settings = request.model_dump(exclude={"idea"})
         raw_suggestions = await get_narrator().brainstorm(build_brainstorm_prompt(request.idea.strip(), settings), request.idea.strip())
+    except GroqRequestError as error:
+        raise to_http_exception(error) from error
     except ValueError as error:
         raise HTTPException(status_code=503, detail="Groq API key is not configured in .env.") from error
     except Exception as error:
+        logger.exception("Unexpected brainstorm route failure request_id=%s", request_id_context.get())
         raise HTTPException(status_code=502, detail="The brainstorm service could not complete the request.") from error
     cleaned_response = re.sub(r"<think>[\s\S]*?</think>", "", raw_suggestions).strip()
     array_start = cleaned_response.find("[")
@@ -103,6 +109,7 @@ async def brainstorm(request: BrainstormRequest) -> dict[str, list[str]]:
     except json.JSONDecodeError:
         suggestions = re.findall(r"(?:^|\n)\s*(?:[-*\d.)]+\s+)?(.+)", cleaned_response)
     if not isinstance(suggestions, list):
+        logger.error("Groq brainstorm returned a non-list request_id=%s", request_id_context.get())
         raise HTTPException(status_code=502, detail="The brainstorm service returned an invalid response.")
     cleaned = []
     for item in suggestions:
@@ -113,6 +120,7 @@ async def brainstorm(request: BrainstormRequest) -> dict[str, list[str]]:
             value = value[:157].rsplit(" ", 1)[0].rstrip() + "…"
         cleaned.append(value)
     if len(cleaned) < 3:
+        logger.error("Groq brainstorm returned fewer than three ideas count=%d request_id=%s", len(cleaned), request_id_context.get())
         raise HTTPException(status_code=502, detail="The brainstorm service returned fewer than three suggestions.")
     return {"suggestions": cleaned[:3]}
 
@@ -124,13 +132,16 @@ async def generate_example(request: ExampleRequest) -> dict[str, str]:
     settings = request.model_dump(exclude={"field"})
     try:
         example = await get_narrator().generate_example(build_example_prompt(request.field, settings))
+    except GroqRequestError as error:
+        raise to_http_exception(error) from error
     except ValueError as error:
         raise HTTPException(status_code=503, detail="Groq API key is not configured in .env.") from error
     except Exception as error:
-        logger.exception("Groq world-field example generation failed")
+        logger.exception("Unexpected world-field example failure request_id=%s", request_id_context.get())
         raise HTTPException(status_code=502, detail="The example generator could not complete the request.") from error
     cleaned_example = re.sub(r"<think>[\s\S]*?</think>", "", example).strip().strip('"')
     if not cleaned_example:
+        logger.error("Groq example response was empty request_id=%s", request_id_context.get())
         raise HTTPException(status_code=502, detail="The example generator returned an empty response.")
     if len(cleaned_example) > 500:
         cleaned_example = cleaned_example[:497].rsplit(" ", 1)[0].rstrip() + "…"
@@ -158,8 +169,10 @@ async def begin_story(story_id: str) -> dict:
     instructions = build_initial_scene_prompt(settings, context)
     try:
         raw_opening = await narrator.reply(build_system_prompt(settings, context, 0) + "\n\n" + instructions, "Write the campaign's opening scene now.")
+    except GroqRequestError as error:
+        raise to_http_exception(error) from error
     except Exception as error:
-        logger.exception("Groq opening scene generation failed")
+        logger.exception("Unexpected opening-scene route failure request_id=%s", request_id_context.get())
         raise HTTPException(status_code=502, detail="The opening scene could not be generated.") from error
 
     opening = parse_narrator_response(raw_opening)

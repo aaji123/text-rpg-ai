@@ -378,6 +378,9 @@ class StoryManager:
             "relationships": [],
             "lore_bank": [],
             "techniques": [],
+            "world_clock": {"day": 1, "hour": 8, "minute": 0, "time_played_minutes": 0},
+            "weather": "Clear",
+            "faction_reputations": [],
         }
 
     @staticmethod
@@ -465,6 +468,15 @@ class StoryManager:
         candidate["relationships"] = self._normalize_records(state.get("relationships", []), {"name": 80, "attitude": 40, "notes": 500}, 100)
         candidate["lore_bank"] = self._normalize_records(state.get("lore_bank", []), {"fact": 500, "source": 120}, 200)
         candidate["techniques"] = self._normalize_records(state.get("techniques", []), {"name": 100, "proficiency": 40, "description": 300}, 100)
+        clock = state.get("world_clock", {})
+        if isinstance(clock, dict):
+            day, hour, minute, elapsed = (clock.get(key, default) for key, default in (("day", 1), ("hour", 8), ("minute", 0), ("time_played_minutes", 0)))
+            if all(isinstance(value, int) and not isinstance(value, bool) for value in (day, hour, minute, elapsed)) and day >= 1 and 0 <= hour <= 23 and 0 <= minute <= 59 and elapsed >= 0:
+                candidate["world_clock"] = {"day": day, "hour": hour, "minute": minute, "time_played_minutes": elapsed}
+        weather = state.get("weather", "Clear")
+        if isinstance(weather, str) and weather.strip():
+            candidate["weather"] = weather.strip()[:80]
+        candidate["faction_reputations"] = self._normalize_factions(state.get("faction_reputations", []))
         resource = state.get("resource", {})
         if isinstance(resource, dict):
             maximum = resource.get("maximum", 0)
@@ -624,9 +636,60 @@ class StoryManager:
                     current.append(record)
                     index[key] = len(current) - 1
                 changed.append(record[identity_key])
+        elapsed = updates.get("elapsed_minutes", 0)
+        if isinstance(elapsed, int) and not isinstance(elapsed, bool) and 0 <= elapsed <= 240:
+            clock = state["world_clock"]
+            total = clock["hour"] * 60 + clock["minute"] + elapsed
+            clock["day"] += total // 1440
+            clock["hour"] = (total // 60) % 24
+            clock["minute"] = total % 60
+            clock["time_played_minutes"] += elapsed
+            if elapsed:
+                changed.append("world clock")
+        weather = updates.get("weather")
+        if isinstance(weather, str) and weather.strip() and len(weather.strip()) <= 80:
+            if state["weather"] != weather.strip():
+                state["weather"] = weather.strip()
+                changed.append("weather")
+        factions = updates.get("faction_reputations", [])
+        if isinstance(factions, list):
+            current = state["faction_reputations"]
+            index = {record["name"].casefold(): position for position, record in enumerate(current)}
+            allowed_standings = {"Allied", "Friendly", "Neutral", "Wary", "Hostile"}
+            for faction in factions[:20]:
+                if not isinstance(faction, dict):
+                    continue
+                name = str(faction.get("name", "")).strip()[:100]
+                standing = str(faction.get("standing", "")).strip()
+                if not name or standing not in allowed_standings:
+                    continue
+                record = {"name": name, "standing": standing, "notes": str(faction.get("notes", "")).strip()[:300]}
+                key = name.casefold()
+                if key in index:
+                    current[index[key]].update(record)
+                else:
+                    current.append(record)
+                    index[key] = len(current) - 1
+                changed.append(name)
         if changed:
             self.save_state(story_id, state)
         return changed
+
+    @staticmethod
+    def _normalize_factions(values: Any) -> list[dict[str, str]]:
+        """Keep imported faction standing labels within the narrator's known scale."""
+
+        if not isinstance(values, list):
+            return []
+        allowed = {"Allied", "Friendly", "Neutral", "Wary", "Hostile"}
+        factions = []
+        for value in values[:100]:
+            if isinstance(value, dict):
+                name = str(value.get("name", "")).strip()[:100]
+                standing = str(value.get("standing", "Neutral")).strip()
+                if name and standing in allowed:
+                    factions.append({"name": name, "standing": standing, "notes": str(value.get("notes", "")).strip()[:300]})
+        return factions
 
     def list_stories(self) -> list[dict[str, str]]:
         """Expose story ids and friendly names without returning local paths."""

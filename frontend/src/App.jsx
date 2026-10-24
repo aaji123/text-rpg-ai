@@ -39,7 +39,7 @@ export default function App() {
       if (narrator) {
         let actions = [];
         try { actions = suggestions ? JSON.parse(suggestions[1]) : []; } catch { actions = []; }
-        const role = /^## Out-of-character conversation/m.test(event) ? "ooc" : /^## Recap/m.test(event) ? "summary" : "narrator";
+        const role = /^## Out-of-character conversation/m.test(event) ? "ooc" : /^## Recap/m.test(event) ? "summary" : /^## Help command/m.test(event) ? "help" : /^## Status command/m.test(event) ? "status" : /^## Inventory command/m.test(event) ? "inventory" : "narrator";
         restored.push({ role, text: narrator[1].trim(), actions });
       }
       if (dice) restored.push({ role: "roll", text: `${dice[1]}: [${dice[2]}] ${Number(dice[3]) >= 0 ? "+" : "−"}${Math.abs(Number(dice[3]))} = ${dice[4]}` });
@@ -144,7 +144,7 @@ export default function App() {
     setMessages((current) => [...current, { role: "player", text }]);
     try {
       const result = await api.sendMessage(story.id, text);
-      setMessages((current) => [...current, { role: result.ooc ? "ooc" : "narrator", text: result.response, actions: result.suggested_actions, sessionSummary: result.session_summary }]);
+      setMessages((current) => [...current, { role: result.command || (result.ooc ? "ooc" : "narrator"), text: result.response, actions: result.suggested_actions, sessionSummary: result.session_summary }]);
       if (result.session_break && result.session_summary) setMessages((current) => [...current, { role: "summary", text: result.session_summary }]);
       try { setStory(await api.loadStory(story.id)); }
       catch { setError("The turn was saved, but the character sheet could not refresh."); }
@@ -169,7 +169,10 @@ export default function App() {
     try {
       const result = await api.rollDice(story.id, notation);
       const outcome = result.difficulty_class === null ? "" : ` · DC ${result.difficulty_class}: ${result.success ? "Success" : "Failure"}`;
-      setMessages((current) => [...current, { role: "roll", text: `${result.notation}: [${result.rolls.join(", ")}] ${result.modifier >= 0 ? "+" : "−"}${Math.abs(result.modifier)} = ${result.total}${outcome}` }]);
+      const rollSummary = `${result.notation}: [${result.rolls.join(", ")}] ${result.modifier >= 0 ? "+" : "−"}${Math.abs(result.modifier)} = ${result.total}${outcome}`;
+      setMessages((current) => [...current, { role: "roll", text: result.response ? `${rollSummary}\n\n${result.response}` : rollSummary }]);
+      try { setStory(await api.loadStory(story.id)); }
+      catch { setError("The roll was saved, but the character sheet could not refresh."); }
     } catch (reason) { setError(reason.message); }
     finally { setBusy(false); }
   }

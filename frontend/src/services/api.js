@@ -7,7 +7,11 @@ async function request(path, options = {}) {
     headers: { "Content-Type": "application/json", ...options.headers },
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.detail || "The local game server could not complete the request.");
+  if (!response.ok) {
+    const detail = data.detail || "The local game server could not complete the request.";
+    const requestId = response.headers.get("X-Request-ID");
+    throw new Error(requestId && !detail.includes(requestId) ? `${detail} (request ID: ${requestId})` : detail);
+  }
   return data;
 }
 
