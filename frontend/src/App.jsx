@@ -31,10 +31,17 @@ export default function App() {
     const events = history.split(/(?=^## )/m).filter((event) => event.trimStart().startsWith("## "));
     for (const event of events) {
       const player = event.match(/\*\*Player:\*\* ([\s\S]*?)(?=\n\n\*\*Narrator:\*\*|$)/);
-      const narrator = event.match(/\*\*Narrator:\*\* ([\s\S]*)$/);
+      const narrator = event.match(/\*\*Narrator:\*\* ([\s\S]*?)(?=\n\n\*\*Suggested actions JSON:\*\*|$)/);
+      const suggestions = event.match(/\*\*Suggested actions JSON:\*\* (\[[^\n]*\])/);
       const dice = event.match(/\*\*Notation:\*\* `([^`]+)`[\s\S]*?\*\*Dice:\*\* \[([^\]]*)\][\s\S]*?\*\*Modifier:\*\* ([+-]?\d+)[\s\S]*?\*\*Total:\*\* (-?\d+)/);
+      if (/^## Session Summary/m.test(event)) restored.push({ role: "summary", text: event.replace(/^## Session Summary\s*/, "").replace(/_Timestamp:.*?_\s*/, "").trim() });
       if (player) restored.push({ role: "player", text: player[1].trim() });
-      if (narrator) restored.push({ role: "narrator", text: narrator[1].trim() });
+      if (narrator) {
+        let actions = [];
+        try { actions = suggestions ? JSON.parse(suggestions[1]) : []; } catch { actions = []; }
+        const role = /^## Out-of-character conversation/m.test(event) ? "ooc" : /^## Recap/m.test(event) ? "summary" : "narrator";
+        restored.push({ role, text: narrator[1].trim(), actions });
+      }
       if (dice) restored.push({ role: "roll", text: `${dice[1]}: [${dice[2]}] ${Number(dice[3]) >= 0 ? "+" : "−"}${Math.abs(Number(dice[3]))} = ${dice[4]}` });
     }
     return restored;
@@ -137,9 +144,21 @@ export default function App() {
     setMessages((current) => [...current, { role: "player", text }]);
     try {
       const result = await api.sendMessage(story.id, text);
-      setMessages((current) => [...current, { role: "narrator", text: result.response }]);
+      setMessages((current) => [...current, { role: result.ooc ? "ooc" : "narrator", text: result.response, actions: result.suggested_actions, sessionSummary: result.session_summary }]);
+      if (result.session_break && result.session_summary) setMessages((current) => [...current, { role: "summary", text: result.session_summary }]);
       try { setStory(await api.loadStory(story.id)); }
       catch { setError("The turn was saved, but the character sheet could not refresh."); }
+    } catch (reason) { setError(reason.message); }
+    finally { setBusy(false); }
+  }
+
+  /** Ask for a continuity recap without advancing in-world time. */
+  async function recapStory() {
+    if (!story || busy) return;
+    setBusy(true); setError("");
+    try {
+      const result = await api.recapStory(story.id);
+      setMessages((current) => [...current, { role: "summary", text: result.recap }]);
     } catch (reason) { setError(reason.message); }
     finally { setBusy(false); }
   }
@@ -149,7 +168,8 @@ export default function App() {
     setBusy(true); setError("");
     try {
       const result = await api.rollDice(story.id, notation);
-      setMessages((current) => [...current, { role: "roll", text: `${result.notation}: [${result.rolls.join(", ")}] ${result.modifier >= 0 ? "+" : "−"}${Math.abs(result.modifier)} = ${result.total}` }]);
+      const outcome = result.difficulty_class === null ? "" : ` · DC ${result.difficulty_class}: ${result.success ? "Success" : "Failure"}`;
+      setMessages((current) => [...current, { role: "roll", text: `${result.notation}: [${result.rolls.join(", ")}] ${result.modifier >= 0 ? "+" : "−"}${Math.abs(result.modifier)} = ${result.total}${outcome}` }]);
     } catch (reason) { setError(reason.message); }
     finally { setBusy(false); }
   }
@@ -177,7 +197,7 @@ export default function App() {
       {error && <div className="error-banner" role="alert">{error}<button onClick={() => setError("")}>×</button></div>}
       {view === "story" && story ? <>
         <div className="campaign-heading"><div><button className="back-home" onClick={() => setView("home")}>← Story library</button><span className="eyebrow">ACTIVE CAMPAIGN</span><h1>{story.name}</h1></div><span className="campaign-badge">✦ &nbsp;{story.settings.mode.toUpperCase()} MODE</span></div>
-        <div className="workspace"><ChatInterface messages={messages} onSend={sendMessage} onRoll={rollDice} busy={busy} /><aside className="sidebar"><CharacterSheet state={story.state} goals={story.goals} plotPillars={story.plot_pillars} worldTemplate={story.settings.world_template} /><SettingsPanel settings={story.settings} onChange={changeSettings} disabled={busy} /><p className="privacy-note">Your story data stays on this machine unless you choose to export or share its folder. Narrator, brainstorm, and example prompts are sent to Groq.</p></aside></div>
+        <div className="workspace"><ChatInterface messages={messages} onSend={sendMessage} onRoll={rollDice} onRecap={recapStory} busy={busy} /><aside className="sidebar"><CharacterSheet state={story.state} goals={story.goals} plotPillars={story.plot_pillars} worldTemplate={story.settings.world_template} /><SettingsPanel settings={story.settings} onChange={changeSettings} disabled={busy} /><p className="privacy-note">Your story data stays on this machine unless you choose to export or share its folder. Narrator, brainstorm, and example prompts are sent to Groq.</p></aside></div>
       </> : <HomeHub stories={stories} recentStoryId={recentStoryId} onCreate={createStory} onLoad={selectStory} onDelete={deleteStory} onImport={importStory} onExport={exportStory} />}
       {initializerOpen && <StoryInitializer onCancel={() => setInitializerOpen(false)} onCreate={submitStoryInitialization} onBrainstorm={brainstorm} onGenerateExample={generateExample} busy={creating} externalError={error} />}
       <footer className="footer"><span>TEXT RPG AI</span><span>✦ &nbsp; YOUR STORY, YOURS TO KEEP</span></footer>

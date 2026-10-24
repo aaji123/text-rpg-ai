@@ -13,11 +13,11 @@ class GameState:
 
         self.stories = stories
 
-    def build_context(self, story_id: str) -> str:
+    def build_context(self, story_id: str, history_limit: int = 12) -> str:
         """Combine character, goals, and recent events for narrative continuity."""
 
         story = self.stories.load_story(story_id)
-        recent_events = self.stories.recent_session_text(story_id)
+        recent_events = self.stories.recent_session_text(story_id, history_limit)
         return "\n\n".join(
             (
                 f"STORY: {story['name']}",

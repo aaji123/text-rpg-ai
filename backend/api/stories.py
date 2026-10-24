@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from backend.ai.prompt_engineer import build_brainstorm_prompt, build_example_prompt, build_initial_scene_prompt, build_system_prompt
+from backend.ai.response_parser import parse_narrator_response
 from backend.api.dependencies import get_game_state, get_narrator, get_story_manager
 
 router = APIRouter(prefix="/api/stories", tags=["stories"])
@@ -137,7 +138,7 @@ async def generate_example(request: ExampleRequest) -> dict[str, str]:
 
 
 @router.post("/{story_id}/begin")
-async def begin_story(story_id: str) -> dict[str, str]:
+async def begin_story(story_id: str) -> dict:
     """Create and persist a grounded opening scene after the wizard completes."""
 
     stories = get_story_manager()
@@ -156,57 +157,22 @@ async def begin_story(story_id: str) -> dict[str, str]:
 
     instructions = build_initial_scene_prompt(settings, context)
     try:
-        raw_opening = await narrator.reply(build_system_prompt(settings, context) + "\n\n" + instructions, "Write the campaign's opening scene now.")
+        raw_opening = await narrator.reply(build_system_prompt(settings, context, 0) + "\n\n" + instructions, "Write the campaign's opening scene now.")
     except Exception as error:
         logger.exception("Groq opening scene generation failed")
         raise HTTPException(status_code=502, detail="The opening scene could not be generated.") from error
 
-    update_match = re.search(r"<!--\s*RPG_STATE_UPDATE:\s*(\{[\s\S]*?\})\s*-->", raw_opening)
-    if update_match:
+    opening = parse_narrator_response(raw_opening)
+    if opening["state_update"]:
         try:
-            updates = json.loads(update_match.group(1))
-            if isinstance(updates, dict):
-                stories.apply_narrative_updates(story_id, updates)
-        except (json.JSONDecodeError, ValueError):
+            stories.apply_narrative_updates(story_id, opening["state_update"])
+        except ValueError:
             pass
-        raw_opening = raw_opening[:update_match.start()] + raw_opening[update_match.end():]
-
-    scene_match = re.search(r"SCENE:\s*([\s\S]*?)(?=\nHOOKS:|$)", raw_opening, re.IGNORECASE)
-    hooks_match = re.search(r"HOOKS:\s*([\s\S]*?)(?=\nCALL TO ACTION:|$)", raw_opening, re.IGNORECASE)
-    action_match = re.search(r"CALL TO ACTION:\s*([\s\S]*)$", raw_opening, re.IGNORECASE)
-    scene = scene_match.group(1).strip() if scene_match else raw_opening.strip()
-    hooks = re.findall(r"^\s*[-*]\s+(.+)$", hooks_match.group(1), re.MULTILINE) if hooks_match else []
-    hooks = [hook.strip() for hook in hooks if hook.strip()][:3]
-    if len(hooks) < 2:
-        hooks = [str(pillar) for pillar in story["state"].get("plot_pillars", [])[:3] if str(pillar).strip()]
-    if len(hooks) < 2:
-        hooks = (hooks + ["A nearby detail may reward a closer look.", "Someone in the area seems to be waiting for an opportunity."])[:2]
-    call_to_action = action_match.group(1).strip() if action_match else "What do you do?"
-
-    state = story["state"]
-    identity = state.get("identity", {})
-    realm = state.get("realm_progress", {})
-    inventory = state.get("inventory", [])
-    inventory_summary = []
-    for item in inventory:
-        name = str(item.get("name", "Unnamed item"))
-        if item.get("kind") == "Consumable":
-            name += f" ×{item.get('quantity', 0)}"
-        elif item.get("kind") == "Durable":
-            name += f" ({item.get('durability', 0)}/{item.get('max_durability', 0)} durability)"
-        inventory_summary.append(name)
-    stats_text = ", ".join(f"{label} {value}" for label, value in state.get("stats", {}).items()) or "None recorded"
-    opening = "\n\n".join((
-        scene or "Your story begins in the chosen setting.",
-        "**Starting character status**\n"
-        f"{identity.get('name', 'Adventurer')}, age {identity.get('age', 'unknown')} · "
-        f"Realm: {realm.get('current', 'Unranked')} · Stats: {stats_text} · "
-        f"Inventory: {', '.join(inventory_summary) if inventory_summary else 'empty'}",
-        "**Points of interest**\n" + "\n".join(f"- {hook}" for hook in hooks),
-        call_to_action or "What do you do?",
-    ))
-    stories.append_event(story_id, "Opening Scene", f"**Narrator:** {opening}")
-    return {"response": opening}
+    log_parts = [f"**Narrator:** {opening['narrative']}"]
+    if opening["suggested_actions"]:
+        log_parts.append("**Suggested actions JSON:** " + json.dumps(opening["suggested_actions"], ensure_ascii=False))
+    stories.append_event(story_id, "Opening Scene", "\n\n".join(log_parts))
+    return {"response": opening["narrative"], "suggested_actions": opening["suggested_actions"]}
 
 
 @router.post("/import", status_code=201)

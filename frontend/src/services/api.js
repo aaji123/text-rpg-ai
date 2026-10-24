@@ -19,6 +19,7 @@ export const api = {
   loadStory: (id) => request(`/stories/${encodeURIComponent(id)}`),
   beginStory: (id) => request(`/stories/${encodeURIComponent(id)}/begin`, { method: "POST" }),
   sendMessage: (id, message) => request(`/stories/${encodeURIComponent(id)}/chat`, { method: "POST", body: JSON.stringify({ message }) }),
+  recapStory: (id) => request(`/stories/${encodeURIComponent(id)}/recap`, { method: "POST" }),
   rollDice: (id, notation) => request(`/stories/${encodeURIComponent(id)}/dice`, { method: "POST", body: JSON.stringify({ notation }) }),
   saveSettings: (id, settings) => request(`/stories/${encodeURIComponent(id)}/settings`, { method: "PUT", body: JSON.stringify(settings) }),
   importStory: async (file) => {

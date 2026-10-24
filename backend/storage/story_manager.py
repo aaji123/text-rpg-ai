@@ -716,7 +716,7 @@ class StoryManager:
         return normalized
 
     def recent_session_text(self, story_id: str, limit: int = 12) -> str:
-        """Read the newest events in chronological order for bounded AI context."""
+        """Read recent events in chronological order for gameplay or recap context."""
 
         sessions_dir = self.story_path(story_id) / "sessions"
         paths = sorted(sessions_dir.glob("session_*.md"))
@@ -726,6 +726,15 @@ class StoryManager:
             events.extend(re.split(r"(?=^## )", contents, flags=re.MULTILINE))
         recent_events = [event.strip() for event in events if event.strip()][-max(1, limit):]
         return "\n\n".join(recent_events)
+
+    def count_conversation_turns(self, story_id: str) -> int:
+        """Count saved player turns to schedule world ticks and session breaks."""
+
+        sessions_dir = self.story_path(story_id) / "sessions"
+        return sum(
+            len(re.findall(r"(?m)^## Conversation turn\s*$", path.read_text(encoding="utf-8")))
+            for path in sorted(sessions_dir.glob("session_*.md"))
+        )
 
     def append_event(self, story_id: str, heading: str, content: str) -> Path:
         """Route a log event to the checked story's session folder."""
