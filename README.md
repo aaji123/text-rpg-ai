@@ -1,6 +1,6 @@
-# Text RPG AI
+# Mythos
 
-Text RPG AI is a local, single-player storytelling game. You describe what your
+Mythos is a local, single-player storytelling game. You describe what your
 character tries to do, and an AI narrator describes what happens next. You can shape
 the world and character before play begins, then guide the story one action at a time.
 

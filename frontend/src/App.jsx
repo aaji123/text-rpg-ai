@@ -203,7 +203,7 @@ export default function App() {
         <div className="workspace"><ChatInterface messages={messages} onSend={sendMessage} onRoll={rollDice} onRecap={recapStory} busy={busy} /><aside className="sidebar"><CharacterSheet state={story.state} goals={story.goals} plotPillars={story.plot_pillars} worldTemplate={story.settings.world_template} /><SettingsPanel settings={story.settings} onChange={changeSettings} disabled={busy} /><p className="privacy-note">Your story data stays on this machine unless you choose to export or share its folder. Narrator, brainstorm, and example prompts are sent to Groq.</p></aside></div>
       </> : <HomeHub stories={stories} recentStoryId={recentStoryId} onCreate={createStory} onLoad={selectStory} onDelete={deleteStory} onImport={importStory} onExport={exportStory} />}
       {initializerOpen && <StoryInitializer onCancel={() => setInitializerOpen(false)} onCreate={submitStoryInitialization} onBrainstorm={brainstorm} onGenerateExample={generateExample} busy={creating} externalError={error} />}
-      <footer className="footer"><span>TEXT RPG AI</span><span>✦ &nbsp; YOUR STORY, YOURS TO KEEP</span></footer>
+      <footer className="footer"><span>MYTHOS</span><span>✦ &nbsp; YOUR STORY, YOURS TO KEEP</span></footer>
     </main>
   );
 }

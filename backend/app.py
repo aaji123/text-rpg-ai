@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 def create_app() -> FastAPI:
     """Keep app construction explicit so local server startup stays predictable."""
 
-    app = FastAPI(title="Text RPG AI", version="0.1.0")
+    app = FastAPI(title="Mythos", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
